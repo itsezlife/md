@@ -12,6 +12,7 @@ import 'package:meta/meta.dart' as meta show internal;
 
 import '../markdown.dart';
 import '../nodes.dart';
+import '../selection.dart';
 import '../theme.dart';
 import 'block_painter.dart';
 import 'blocks/alert.dart';
@@ -61,6 +62,25 @@ class MarkdownPainter {
   /// Source `Markdown.blocks` index for each painter (differs from the painter
   /// index whenever a `blockFilter` drops blocks).
   List<int> _sourceIndices = const <int>[];
+
+  /// Horizontal pan offsets for overflowing tables, keyed by source block
+  /// index. Survives [_rebuild] so a theme / model identity change does not
+  /// snap the viewport back to zero. Remount across engine recycle uses
+  /// [MarkdownSelectionController] via [_selectionController].
+  final Map<int, double> _tableScrollBySource = <int, double>{};
+
+  MarkdownSelectionController? _selectionController;
+  Object? _documentId;
+
+  /// Wires the selection registry used to persist table pans across surface
+  /// dispose / remount. Pass nulls when the widget is non-selectable.
+  void bindTableScrollStore(
+    MarkdownSelectionController? controller,
+    Object? documentId,
+  ) {
+    _selectionController = controller;
+    _documentId = documentId;
+  }
 
   static BlockPainter _defaultBlockBuilder(
     MD$Block block,
@@ -113,6 +133,10 @@ class MarkdownPainter {
   /// Rebuilds the block painters from the markdown blocks.
   /// This method is called whenever the markdown or theme changes.
   void _rebuild() {
+    _harvestTableScrolls();
+    for (final painter in _blockPainters) {
+      painter.dispose();
+    }
     _needsLayout = true; // Mark that layout needs to be recalculated.
     _size = Size.zero; // Reset size before rebuilding.
     final filter = _theme.blockFilter;
@@ -130,6 +154,58 @@ class MarkdownPainter {
     _blockPainters = painters;
     _sourceIndices = sources;
     _blockOffsets = Float32List(_blockPainters.length);
+    // Drop scroll entries for blocks that are no longer pannable tables.
+    final tableSources = <int>{
+      for (var i = 0; i < painters.length; i++)
+        if (painters[i] is HorizontallyPannableBlock) sources[i],
+    };
+    _tableScrollBySource.removeWhere((key, _) => !tableSources.contains(key));
+  }
+
+  void _harvestTableScrolls() {
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final painter = _blockPainters[i];
+      if (painter is! HorizontallyPannableBlock) continue;
+      final source = _sourceIndices[i];
+      if (painter.scrollOffset > 0) {
+        _tableScrollBySource[source] = painter.scrollOffset;
+      } else {
+        _tableScrollBySource.remove(source);
+      }
+    }
+  }
+
+  /// Records the live pan of [block] under its source block index so a later
+  /// [_rebuild] or remount can [HorizontallyPannableBlock.restoreScrollOffset].
+  void rememberTableScroll(HorizontallyPannableBlock block) {
+    for (var i = 0; i < _blockPainters.length; i++) {
+      if (!identical(_blockPainters[i], block)) continue;
+      final source = _sourceIndices[i];
+      if (block.scrollOffset > 0) {
+        _tableScrollBySource[source] = block.scrollOffset;
+      } else {
+        _tableScrollBySource.remove(source);
+      }
+      final controller = _selectionController;
+      final documentId = _documentId;
+      if (controller != null && documentId != null) {
+        controller.setTableScrollOffset(
+          documentId,
+          source,
+          block.scrollOffset,
+        );
+      }
+      return;
+    }
+  }
+
+  double? _savedTableScroll(int sourceIndex) {
+    final local = _tableScrollBySource[sourceIndex];
+    if (local != null) return local;
+    final controller = _selectionController;
+    final documentId = _documentId;
+    if (controller == null || documentId == null) return null;
+    return controller.tableScrollOffset(documentId, sourceIndex);
   }
 
   /// Binary-searches the painter index whose vertical band contains [dy].
@@ -194,6 +270,36 @@ class MarkdownPainter {
     return painter.isLinkAtLocal(blockLocal);
   }
 
+  /// The horizontally pannable block under [local], if any.
+  HorizontallyPannableBlock? pannableBlockAt(Offset local) {
+    if (_needsLayout || _isEmpty || _blockPainters.isEmpty) return null;
+    if (local.dx < 0 ||
+        local.dx >= _size.width ||
+        local.dy < 0 ||
+        local.dy >= _size.height) {
+      return null;
+    }
+    final idx = _blockIndexForDy(local.dy);
+    if (idx < 0 || idx >= _blockPainters.length) return null;
+    final painter = _blockPainters[idx];
+    if (painter is! HorizontallyPannableBlock || !painter.canPanHorizontally) {
+      return null;
+    }
+    final top = _blockOffsets[idx];
+    if (local.dy < top || local.dy >= top + painter.size.height) return null;
+    if (local.dx > painter.size.width) return null;
+    return painter;
+  }
+
+  /// Drops the cached content [Picture] so the next [paint] re-records (e.g.
+  /// after a table horizontal pan). Size is unchanged, so without this the
+  /// glyph cache would replay the old scroll offset.
+  void invalidatePicture() {
+    _lastPicture?.dispose();
+    _lastPicture = null;
+    _lastSize = null;
+  }
+
   /// Paints the selection highlight of every selectable block, using [rangeOf]
   /// to look up the selected rendered range for a source block index.
   void paintHighlight(
@@ -256,10 +362,7 @@ class MarkdownPainter {
     _lastSize = null;
     _lastPicture = null;
     // Dispose and rebuild all block painters to recreate TextPainters
-    // with the new system fonts
-    for (final painter in _blockPainters) {
-      painter.dispose();
-    }
+    // with the new system fonts (_rebuild harvests table pans first).
     _rebuild();
   }
 
@@ -282,6 +385,15 @@ class MarkdownPainter {
       offsets[i] = height;
       final block = blocks[i];
       final size = block.layout(maxWidth);
+      if (block case final HorizontallyPannableBlock pannable) {
+        final source = _sourceIndices[i];
+        final saved = _savedTableScroll(source);
+        if (saved != null) {
+          pannable.restoreScrollOffset(saved);
+          // Sync clamped value back to both stores (maxScroll may have shrunk).
+          rememberTableScroll(pannable);
+        }
+      }
       width = math.max(width, size.width);
       height += size.height;
     }
@@ -418,6 +530,7 @@ class MarkdownPainter {
   void dispose() {
     _lastPicture?.dispose();
     _lastPicture = null;
+    _tableScrollBySource.clear();
     for (final painter in _blockPainters) {
       painter.dispose();
     }

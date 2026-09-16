@@ -13,6 +13,7 @@ import 'package:meta/meta.dart' as meta show internal;
 import '../markdown.dart';
 import '../selection.dart';
 import '../theme.dart';
+import 'block_painter.dart';
 import 'markdown_painter.dart';
 
 /// Default color used to paint the selection highlight over the glyphs.
@@ -47,6 +48,11 @@ class MarkdownRenderObject extends RenderBox
   LayerLink? _endHandleLink;
   Offset? _endHandleLocal;
 
+  /// Touch / stylus pan over a [HorizontallyPannableBlock] (mouse uses scroll
+  /// signals so selection TapAndPan is not stolen).
+  HorizontalDragGestureRecognizer? _tablePan;
+  HorizontallyPannableBlock? _panningBlock;
+
   void _onSelectionChange() {
     if (!_disposed) markNeedsPaint();
   }
@@ -74,10 +80,14 @@ class MarkdownRenderObject extends RenderBox
     MarkdownSelectionController? controller,
     Object? documentId,
   ) {
-    if (identical(controller, _controller) && documentId == _documentId) return;
+    if (identical(controller, _controller) && documentId == _documentId) {
+      _painter.bindTableScrollStore(controller, documentId);
+      return;
+    }
     _detachController();
     _controller = controller;
     _documentId = documentId;
+    _painter.bindTableScrollStore(controller, documentId);
     _attachController();
     if (attached) {
       markNeedsCompositingBitsUpdate();
@@ -258,7 +268,60 @@ class MarkdownRenderObject extends RenderBox
         if (!_disposed && attached) markNeedsPaint();
       }
     }
+    if (event is PointerScrollEvent) {
+      _panOverflowingTable(event.localPosition, event.scrollDelta.dx);
+    } else if (event is PointerDownEvent) {
+      _maybeArmTablePan(event);
+    }
     _painter.handleEvent(event);
+  }
+
+  void _maybeArmTablePan(PointerDownEvent event) {
+    // Mouse selection uses TapAndPan on the scope; competing HorizontalDrag
+    // would steal table cell selection. Touch / stylus get table pan; mouse
+    // and trackpad reach the same content via [PointerScrollEvent].
+    final kind = event.kind;
+    if (kind != PointerDeviceKind.touch &&
+        kind != PointerDeviceKind.stylus &&
+        kind != PointerDeviceKind.invertedStylus) {
+      return;
+    }
+    final block = _painter.pannableBlockAt(event.localPosition);
+    if (block == null) return;
+    _panningBlock = block;
+    var pan = _tablePan;
+    if (pan == null) {
+      pan = HorizontalDragGestureRecognizer()
+        ..dragStartBehavior = DragStartBehavior.down
+        ..onUpdate = (details) {
+          final t = _panningBlock;
+          if (t == null) return;
+          // Finger moving left reveals content on the right.
+          if (t.applyScrollDelta(-details.delta.dx)) {
+            _painter.rememberTableScroll(t);
+            _painter.invalidatePicture();
+            markNeedsPaint();
+          }
+        }
+        ..onEnd = (_) {
+          _panningBlock = null;
+        }
+        ..onCancel = () {
+          _panningBlock = null;
+        };
+      _tablePan = pan;
+    }
+    pan.addPointer(event);
+  }
+
+  bool _panOverflowingTable(Offset local, double deltaDx) {
+    final block = _painter.pannableBlockAt(local);
+    if (block == null) return false;
+    if (!block.applyScrollDelta(deltaDx)) return false;
+    _painter.rememberTableScroll(block);
+    _painter.invalidatePicture();
+    markNeedsPaint();
+    return true;
   }
 
   /// Handles system font changes by marking the render object as needing layout
@@ -273,6 +336,7 @@ class MarkdownRenderObject extends RenderBox
   void attach(PipelineOwner owner) {
     super.attach(owner);
     PaintingBinding.instance.systemFonts.addListener(_handleSystemFontsChange);
+    _painter.bindTableScrollStore(_controller, _documentId);
     _controller?.attachSurface(this);
   }
 
@@ -306,6 +370,9 @@ class MarkdownRenderObject extends RenderBox
   void dispose() {
     _disposed = true;
     _controller?.removeListener(_onSelectionChange);
+    _tablePan?.dispose();
+    _tablePan = null;
+    _panningBlock = null;
     super.dispose();
     _painter.dispose();
   }

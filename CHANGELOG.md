@@ -1,3 +1,12 @@
+## Unreleased
+
+### Scrollable overflowing tables
+- **ADDED**: Opt-in `BlockPainter$ScrollableTable` via
+  `MarkdownThemeData.builder`. Default `BlockPainter$Table` keeps historical
+  overflow layout. Optional `HorizontallyPannableBlock` capability lets the
+  render object route pan only for painters that implement it. Pan offsets
+  persist on `MarkdownSelectionController` across rebuild and remount.
+
 ## 0.2.0
 
 > **Upgrading from 0.0.x?** See the

@@ -8,6 +8,7 @@ export 'src/render.dart'
         // Block-painter framework — implement/extend to customize rendering.
         BlockPainter,
         SelectableBlockPainter,
+        HorizontallyPannableBlock,
         SelectableTextBlock,
         MultiPainterSelectable,
         SelectableFragment,
@@ -21,6 +22,7 @@ export 'src/render.dart'
         BlockPainter$Code,
         BlockPainter$List,
         BlockPainter$Table,
+        BlockPainter$ScrollableTable,
         BlockPainter$Divider,
         BlockPainter$Spacer;
 export 'src/highlight/engine.dart' show CodeHighlightTheme, SyntaxHighlighter;

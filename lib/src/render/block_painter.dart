@@ -35,6 +35,28 @@ abstract interface class BlockPainter {
   void dispose();
 }
 
+/// Optional capability for a [BlockPainter] whose content can exceed its
+/// reported [size] horizontally and be panned by the markdown render object.
+///
+/// Only painters that **opt in** implement this (e.g.
+/// [BlockPainter$ScrollableTable]). The default [BlockPainter$Table] does not.
+/// Choosing a pannable painter via [MarkdownThemeData.builder] is the opt-in —
+/// not a theme-wide flag that every block implementation must honor.
+abstract interface class HorizontallyPannableBlock implements BlockPainter {
+  /// Whether content is wider than the viewport and may accept pan deltas.
+  bool get canPanHorizontally;
+
+  /// Current horizontal pan (`0` = leading edge).
+  double get scrollOffset;
+
+  /// Pans content by [deltaDx] (positive reveals content on the trailing side).
+  /// Returns true when the offset changed.
+  bool applyScrollDelta(double deltaDx);
+
+  /// Restores a saved pan after [layout] (clamped to the new max scroll).
+  void restoreScrollOffset(double offset);
+}
+
 /// A [BlockPainter] that supports text selection. All coordinates are local to
 /// the block's top-left corner (as passed to [paint]'s `offset`).
 ///

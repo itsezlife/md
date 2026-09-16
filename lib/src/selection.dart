@@ -611,6 +611,14 @@ class MarkdownSelectionController extends ChangeNotifier {
   final Map<Object, MarkdownSelectionSurface> _surfaces =
       <Object, MarkdownSelectionSurface>{};
 
+  /// Horizontal pan of overflowing tables, keyed by document id → source block
+  /// index. Lives on the controller so a virtualized chat can dispose the
+  /// render object and remount without snapping the table back to zero.
+  /// Cleared only when the document is removed or the controller is disposed —
+  /// not when the surface merely detaches.
+  final Map<Object, Map<int, double>> _tableScrollByDoc =
+      <Object, Map<int, double>>{};
+
   MarkdownSelection? _selection;
 
   /// The current selection, or null when nothing is selected.
@@ -625,7 +633,27 @@ class MarkdownSelectionController extends ChangeNotifier {
   @override
   void dispose() {
     _group?._remove(this);
+    _tableScrollByDoc.clear();
     super.dispose();
+  }
+
+  /// Saved horizontal pan for an overflowing table at [blockIndex] under
+  /// [documentId], or null when none.
+  double? tableScrollOffset(Object documentId, int blockIndex) =>
+      _tableScrollByDoc[documentId]?[blockIndex];
+
+  /// Records (or clears, when [offset] ≤ 0) the horizontal pan of an
+  /// overflowing table. Survives surface detach / remount.
+  void setTableScrollOffset(Object documentId, int blockIndex, double offset) {
+    if (offset <= 0) {
+      final byBlock = _tableScrollByDoc[documentId];
+      if (byBlock == null) return;
+      byBlock.remove(blockIndex);
+      if (byBlock.isEmpty) _tableScrollByDoc.remove(documentId);
+      return;
+    }
+    _tableScrollByDoc
+        .putIfAbsent(documentId, () => <int, double>{})[blockIndex] = offset;
   }
 
   /// The number of registered documents. Prefer this over `documents.length`,
@@ -685,6 +713,7 @@ class MarkdownSelectionController extends ChangeNotifier {
   /// Removes a document. If the selection touched it, the selection is dropped.
   void removeDocument(Object id) {
     _docs.removeWhere((e) => e.id == id);
+    _tableScrollByDoc.remove(id);
     _reindex();
     final sel = _selection;
     if (sel != null &&
