@@ -26,13 +26,18 @@ class MarkdownWidget extends LeafRenderObjectWidget {
   /// Current theme for the markdown widget.
   final MarkdownThemeData? theme;
 
-  /// The selection controller this widget participates in. When null, the
-  /// nearest [MarkdownSelectionScope] controller is used, if any.
+  /// Selection controller. Falls back to the nearest [MarkdownSelectionScope]
+  /// when null.
+  ///
+  /// Also the [MarkdownHorizontalPanStore] for pannable blocks. Pan remount
+  /// needs a controller and [documentId] even if you never show selection
+  /// chrome; you do not need a scope for that.
   final MarkdownSelectionController? controller;
 
-  /// The stable document id used to anchor selection positions. Selection is
-  /// only enabled when this is non-null AND a controller is available; the app
-  /// must register this document's model with the controller.
+  /// Stable id for selection anchors and horizontal pan.
+  ///
+  /// Both features need this plus a [controller]. For selection, register the
+  /// document model on the controller yourself.
   final Object? documentId;
 
   /// An optional callback to dynamically resolve the mouse cursor based on
@@ -61,19 +66,24 @@ class MarkdownWidget extends LeafRenderObjectWidget {
         markdown: markdown,
         theme: _resolveTheme(context),
         cursorResolver: cursorResolver,
-      )..updateSelection(_resolveController(context), documentId);
+      )
+        ..updateSelection(_resolveController(context), documentId)
+        ..setTickerModeEnabled(TickerMode.valuesOf(context).enabled);
 
   @override
   void updateRenderObject(
     BuildContext context,
     MarkdownRenderObject renderObject,
   ) {
+    // Bind selection / pan store before updating the model so a simultaneous
+    // markdown + documentId change cannot harvest pans into the wrong doc.
     renderObject
+      ..updateSelection(_resolveController(context), documentId)
+      ..setTickerModeEnabled(TickerMode.valuesOf(context).enabled)
       ..update(
         markdown: markdown,
         theme: _resolveTheme(context),
         cursorResolver: cursorResolver,
-      )
-      ..updateSelection(_resolveController(context), documentId);
+      );
   }
 }

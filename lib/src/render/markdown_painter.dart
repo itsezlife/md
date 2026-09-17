@@ -12,6 +12,7 @@ import 'package:meta/meta.dart' as meta show internal;
 
 import '../markdown.dart';
 import '../nodes.dart';
+import '../selection.dart';
 import '../theme.dart';
 import 'block_painter.dart';
 import 'blocks/alert.dart';
@@ -64,6 +65,41 @@ class MarkdownPainter {
   /// Source `Markdown.blocks` index for each painter (differs from the painter
   /// index whenever a `blockFilter` drops blocks).
   List<int> _sourceIndices = const <int>[];
+
+  /// Horizontal pan offsets for [HorizontallyPannableBlock]s, keyed by source
+  /// block index. Survives [_rebuild] via content-anchored remapping so a
+  /// theme / model identity change does not snap the viewport back to zero.
+  /// Remount across engine recycle uses [MarkdownHorizontalPanStore] via
+  /// [_panStore].
+  final Map<int, double> _horizontalPanBySource = <int, double>{};
+
+  MarkdownHorizontalPanStore? _panStore;
+  Object? _documentId;
+
+  /// Callback when block painters are disposed/replaced (active pan must stop).
+  VoidCallback? onPaintersRebuilt;
+
+  /// Wires the pan store used to persist horizontal pans across surface dispose
+  /// / remount. Pass nulls when the widget has no document id. Clears the local
+  /// pan map when the store / document identity changes so a rebind cannot
+  /// poison the new document with stale local offsets.
+  void bindHorizontalPanStore(
+    MarkdownHorizontalPanStore? store,
+    Object? documentId,
+  ) {
+    if (!identical(store, _panStore) || documentId != _documentId) {
+      _horizontalPanBySource.clear();
+      // Drop live pan immediately so a same-markdown documentId swap cannot
+      // keep the previous offset until (or unless) layout runs.
+      for (final painter in _blockPainters) {
+        if (painter is HorizontallyPannableBlock) {
+          painter.restoreScrollOffset(0);
+        }
+      }
+    }
+    _panStore = store;
+    _documentId = documentId;
+  }
 
   static BlockPainter _defaultBlockBuilder(
     MD$Block block,
@@ -125,7 +161,18 @@ class MarkdownPainter {
 
   /// Rebuilds the block painters from the markdown blocks.
   /// This method is called whenever the markdown or theme changes.
-  void _rebuild() {
+  /// [preHarvested] / [oldBlocks] supply pans captured against the previous
+  /// model (required when [_markdown] was already swapped before rebuild).
+  void _rebuild({
+    Map<int, double>? preHarvested,
+    List<MD$Block>? oldBlocks,
+  }) {
+    final harvested = preHarvested ?? _harvestHorizontalPanOffsets();
+    final previousBlocks = oldBlocks ?? _markdown.blocks;
+    for (final painter in _blockPainters) {
+      painter.dispose();
+    }
+    onPaintersRebuilt?.call();
     _needsLayout = true; // Mark that layout needs to be recalculated.
     _size = Size.zero; // Reset size before rebuilding.
     final filter = _theme.blockFilter;
@@ -143,6 +190,100 @@ class MarkdownPainter {
     _blockPainters = painters;
     _sourceIndices = sources;
     _blockOffsets = Float32List(_blockPainters.length);
+    _horizontalPanBySource
+      ..clear()
+      ..addAll(
+        remapHorizontalPanOffsets(
+          byBlock: harvested,
+          oldBlocks: previousBlocks,
+          newBlocks: blocks,
+        ),
+      );
+  }
+
+  /// Harvests live pans keyed by source block index.
+  Map<int, double> _harvestHorizontalPanOffsets() {
+    final out = <int, double>{};
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final painter = _blockPainters[i];
+      if (painter is! HorizontallyPannableBlock) continue;
+      final source = _sourceIndices[i];
+      if (painter.scrollOffset <= 0) continue;
+      out[source] = painter.scrollOffset;
+    }
+    return out;
+  }
+
+  /// Records the live pan of [block] under its source block index so a later
+  /// [_rebuild] or remount can [HorizontallyPannableBlock.restoreScrollOffset].
+  ///
+  /// When the block cannot pan (fits width, or a host gate refused gestures)
+  /// a zero live offset must **not** clear the durable controller entry —
+  /// otherwise a temporary fit or `enabled: false` rebuild wipes remount state.
+  void rememberHorizontalPan(HorizontallyPannableBlock block) {
+    for (var i = 0; i < _blockPainters.length; i++) {
+      if (!identical(_blockPainters[i], block)) continue;
+      final source = _sourceIndices[i];
+      if (block.scrollOffset > 0) {
+        _horizontalPanBySource[source] = block.scrollOffset;
+      } else {
+        _horizontalPanBySource.remove(source);
+      }
+      final store = _panStore;
+      final documentId = _documentId;
+      if (store == null || documentId == null) return;
+      if (block.scrollOffset > 0) {
+        store.setHorizontalPanOffset(
+          documentId,
+          source,
+          block.scrollOffset,
+        );
+      } else if (block.canPanHorizontally) {
+        // User scrolled back to the leading edge while still overflowing.
+        store.setHorizontalPanOffset(documentId, source, 0);
+      }
+      // else: not pannable — leave the durable store alone.
+      return;
+    }
+  }
+
+  /// After a committing layout, rewrite the controller map from live painters
+  /// so orphan indices from a putDocument/remount race cannot linger. Entries
+  /// for live blocks that are temporarily not pannable are preserved.
+  void syncHorizontalPanStore() {
+    final store = _panStore;
+    final documentId = _documentId;
+    final existing = (store != null && documentId != null)
+        ? store.horizontalPanOffsets(documentId)
+        : null;
+    final next = <int, double>{};
+    _horizontalPanBySource.clear();
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final painter = _blockPainters[i];
+      if (painter is! HorizontallyPannableBlock) continue;
+      final source = _sourceIndices[i];
+      if (painter.scrollOffset > 0) {
+        next[source] = painter.scrollOffset;
+        _horizontalPanBySource[source] = painter.scrollOffset;
+      } else if (painter.canPanHorizontally) {
+        // Leading edge while overflowing — durable clear via [next] omit.
+      } else {
+        final kept = existing?[source];
+        if (kept != null && kept > 0) next[source] = kept;
+      }
+    }
+    if (store != null && documentId != null) {
+      store.replaceHorizontalPanOffsets(documentId, next);
+    }
+  }
+
+  double? _savedHorizontalPan(int sourceIndex) {
+    final local = _horizontalPanBySource[sourceIndex];
+    if (local != null) return local;
+    final store = _panStore;
+    final documentId = _documentId;
+    if (store == null || documentId == null) return null;
+    return store.horizontalPanOffset(documentId, sourceIndex);
   }
 
   /// Binary-searches the painter index whose vertical band contains [dy].
@@ -245,6 +386,27 @@ class MarkdownPainter {
     return (sourceIndex, _markdown.blocks[sourceIndex]);
   }
 
+  /// The horizontally pannable block under [local], if any.
+  HorizontallyPannableBlock? pannableBlockAt(Offset local) {
+    if (_needsLayout || _isEmpty || _blockPainters.isEmpty) return null;
+    if (local.dx < 0 ||
+        local.dx >= _size.width ||
+        local.dy < 0 ||
+        local.dy >= _size.height) {
+      return null;
+    }
+    final idx = _blockIndexForDy(local.dy);
+    if (idx < 0 || idx >= _blockPainters.length) return null;
+    final painter = _blockPainters[idx];
+    if (painter is! HorizontallyPannableBlock || !painter.canPanHorizontally) {
+      return null;
+    }
+    final top = _blockOffsets[idx];
+    if (local.dy < top || local.dy >= top + painter.size.height) return null;
+    if (local.dx > painter.size.width) return null;
+    return painter;
+  }
+
   /// Whether the content under [local] belongs to selectable **glyph** ink
   /// (not empty max-width gutter to the right of a short line).
   bool isSelectableAtLocal(Offset local) {
@@ -269,6 +431,8 @@ class MarkdownPainter {
   /// When [aboveCachedContentOnly] is true, only blocks that report
   /// [SelectableBlockPainter.selectionHighlightAboveCachedContent] are painted
   /// (opaque chrome that would hide an under-content highlight).
+  /// Highlights for [HorizontallyPannableBlock]s are clipped to the block
+  /// viewport so scrolled-off selection does not paint into neighboring UI.
   void paintHighlight(
     Canvas canvas,
     TextRange? Function(int sourceIndex) rangeOf,
@@ -285,8 +449,24 @@ class MarkdownPainter {
       final range = rangeOf(_sourceIndices[i]);
       if (range == null || range.start >= range.end) continue;
       final top = _blockOffsets[i];
-      for (final rect in painter.boxesForRange(range.start, range.end)) {
-        canvas.drawRect(rect.shift(Offset(0, top)), paint);
+      final boxes = painter.boxesForRange(range.start, range.end);
+      if (painter is HorizontallyPannableBlock) {
+        final viewport = Rect.fromLTWH(
+          0,
+          top,
+          painter.size.width,
+          painter.size.height,
+        );
+        canvas.save();
+        canvas.clipRect(viewport);
+        for (final rect in boxes) {
+          canvas.drawRect(rect.shift(Offset(0, top)), paint);
+        }
+        canvas.restore();
+      } else {
+        for (final rect in boxes) {
+          canvas.drawRect(rect.shift(Offset(0, top)), paint);
+        }
       }
     }
   }
@@ -294,6 +474,7 @@ class MarkdownPainter {
   /// Content-local rectangles covering the selection described by [rangeOf], in
   /// reading order. Same geometry [paintHighlight] draws, collected instead of
   /// painted — used to position selection handles, the magnifier and toolbar.
+  /// Pannable-block boxes are intersected with the block viewport.
   List<Rect> selectionBoxes(TextRange? Function(int sourceIndex) rangeOf) {
     final out = <Rect>[];
     for (var i = 0; i < _blockPainters.length; i++) {
@@ -302,8 +483,23 @@ class MarkdownPainter {
       final range = rangeOf(_sourceIndices[i]);
       if (range == null || range.start >= range.end) continue;
       final top = _blockOffsets[i];
-      for (final rect in painter.boxesForRange(range.start, range.end)) {
-        out.add(rect.shift(Offset(0, top)));
+      final shift = Offset(0, top);
+      if (painter is HorizontallyPannableBlock) {
+        final viewport = Rect.fromLTWH(
+          0,
+          top,
+          painter.size.width,
+          painter.size.height,
+        );
+        for (final rect in painter.boxesForRange(range.start, range.end)) {
+          final shifted = rect.shift(shift);
+          final clipped = shifted.intersect(viewport);
+          if (!clipped.isEmpty) out.add(clipped);
+        }
+      } else {
+        for (final rect in painter.boxesForRange(range.start, range.end)) {
+          out.add(rect.shift(shift));
+        }
       }
     }
     return out;
@@ -352,12 +548,16 @@ class MarkdownPainter {
   }) {
     if (identical(_markdown, markdown) && identical(_theme, theme))
       return false;
+    // Harvest against the *current* model before swapping — otherwise
+    // content-anchored remap would key pans by the new blocks' text.
+    final oldBlocks = _markdown.blocks;
+    final harvested = _harvestHorizontalPanOffsets();
     _lastSize = null;
     _lastPicture = null;
     _markdown = markdown;
     _theme = theme;
     _isEmpty = markdown.isEmpty;
-    _rebuild();
+    _rebuild(preHarvested: harvested, oldBlocks: oldBlocks);
     return true; // Indicate that the painter was updated.
   }
 
@@ -368,15 +568,19 @@ class MarkdownPainter {
     _lastSize = null;
     _lastPicture = null;
     // Dispose and rebuild all block painters to recreate TextPainters
-    // with the new system fonts
-    for (final painter in _blockPainters) {
-      painter.dispose();
-    }
+    // with the new system fonts (_rebuild harvests horizontal pans first).
     _rebuild();
   }
 
   /// Layouts the markdown content with the given width.
-  Size layout({required double maxWidth}) {
+  ///
+  /// When [commitHorizontalPan] is false (dry layout), pans are neither
+  /// restored nor written to the durable store — a tentative narrower width
+  /// must not clamp remount state before [performLayout] commits.
+  Size layout({
+    required double maxWidth,
+    bool commitHorizontalPan = true,
+  }) {
     if (_isEmpty) {
       _size = Size.zero;
       _needsLayout = false; // No need to layout if the markdown is empty.
@@ -394,8 +598,20 @@ class MarkdownPainter {
       offsets[i] = height;
       final block = blocks[i];
       final size = block.layout(maxWidth);
+      if (commitHorizontalPan) {
+        if (block case final HorizontallyPannableBlock pannable) {
+          final source = _sourceIndices[i];
+          final saved = _savedHorizontalPan(source) ?? 0.0;
+          pannable.restoreScrollOffset(saved);
+        }
+      }
       width = math.max(width, size.width);
       height += size.height;
+    }
+    if (commitHorizontalPan) {
+      // Restore already applied above; rewrite local + controller from live
+      // painters (drops orphan indices, keeps durable pans while !canPan).
+      syncHorizontalPanStore();
     }
     _needsLayout = false; // No need to layout if the markdown is empty.
     return _size = Size(width, height);
@@ -537,6 +753,10 @@ class MarkdownPainter {
   Picture? _lastPicture;
 
   /// The markdown content to paint.
+  ///
+  /// Non-pannable blocks are recorded into a cached [Picture] keyed by size.
+  /// [HorizontallyPannableBlock]s are painted live afterward (clip + translate
+  /// inside each painter) so pan/fling never invalidates the glyph cache.
   void paint(Canvas canvas, Size size) {
     assert(
       !_needsLayout,
@@ -552,37 +772,76 @@ class MarkdownPainter {
     if (_isEmpty || size.isEmpty || size.isInfinite) return;
 
     if (_lastSize == size && _lastPicture != null) {
-      // If the size is the same as the last painted size,
-      // we can reuse the last picture.
+      // Reuse the glyph cache; pannable blocks still paint live below.
       canvas.drawPicture(_lastPicture!);
-      return;
-    }
+    } else {
+      final recorder = PictureRecorder();
+      final $canvas = Canvas(recorder);
 
-    final recorder = PictureRecorder();
-    final $canvas = Canvas(recorder);
-
-    // Paint each block painter on the canvas.
-    var overflow = _size.height > size.height;
-    var offset = .0;
-    for (var painter in _blockPainters) {
-      if (overflow && offset > size.height) {
-        // If the painter's height exceeds the available height,
-        // we stop painting further blocks.
-        break;
+      // Record only non-pannable blocks — pan offset must not be baked in.
+      var overflow = _size.height > size.height;
+      var offset = .0;
+      for (var painter in _blockPainters) {
+        if (overflow && offset > size.height) {
+          break;
+        }
+        if (painter is! HorizontallyPannableBlock) {
+          painter.paint($canvas, size, offset);
+        }
+        offset += painter.size.height;
       }
-      painter.paint($canvas, size, offset);
-      offset += painter.size.height; // Update the offset for the next block.
+
+      final picture = recorder.endRecording();
+      canvas.drawPicture(picture);
+      _lastSize = size;
+      _lastPicture?.dispose();
+      _lastPicture = picture;
     }
 
-    final picture = recorder.endRecording();
-    canvas.drawPicture(picture);
-    _lastSize = size;
-    _lastPicture = picture;
+    _paintPannableBlocks(canvas, size);
   }
+
+  /// Paints [HorizontallyPannableBlock]s on the live canvas (outside the
+  /// document [Picture]) so scroll offset changes only need [markNeedsPaint].
+  void _paintPannableBlocks(Canvas canvas, Size size) {
+    var overflow = _size.height > size.height;
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final painter = _blockPainters[i];
+      final offset = _blockOffsets[i];
+      if (overflow && offset > size.height) break;
+      if (painter is HorizontallyPannableBlock) {
+        painter.paint(canvas, size, offset);
+      }
+    }
+  }
+
+  /// Whether the document glyph [Picture] is currently cached for [size].
+  /// Exposed for tests asserting pan does not invalidate the cache.
+  @visibleForTesting
+  bool hasCachedPictureFor(Size size) =>
+      _lastSize == size && _lastPicture != null;
+
+  /// Live [HorizontallyPannableBlock] at painter index [painterIndex], if any.
+  /// Exposed for tests asserting remount / remapped pan offsets.
+  @visibleForTesting
+  HorizontallyPannableBlock? pannablePainterAt(int painterIndex) {
+    if (painterIndex < 0 || painterIndex >= _blockPainters.length) {
+      return null;
+    }
+    final p = _blockPainters[painterIndex];
+    return p is HorizontallyPannableBlock ? p : null;
+  }
+
+  /// Source-index → pan map after layout restore (tests).
+  @visibleForTesting
+  Map<int, double> get debugHorizontalPanBySource =>
+      Map<int, double>.unmodifiable(_horizontalPanBySource);
 
   void dispose() {
     _lastPicture?.dispose();
     _lastPicture = null;
+    _horizontalPanBySource.clear();
+    onPaintersRebuilt = null;
     for (final painter in _blockPainters) {
       painter.dispose();
     }

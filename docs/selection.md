@@ -290,6 +290,34 @@ also heals with `putDocument` on attach so a mounted selectable body is never
 absent from the registry; that heal alone is not a substitute for explicit
 registration when documents outlive their widgets (virtualized lists).
 
+## Horizontal pan persistence
+
+Pannable blocks (`BlockPainter$ScrollableTable` and anything else that
+implements `HorizontallyPannableBlock`) keep their offset in a
+`MarkdownHorizontalPanStore`. `MarkdownSelectionController` is the stock
+implementation, keyed by `(documentId, sourceBlockIndex)`.
+
+If you only need pan remount and not selection chrome, still pass a controller
+and `documentId`. You do not need `MarkdownSelectionScope`.
+
+Same-surface rebuilds use a painter-local map; remount uses the store.
+`putDocument` and `setDocuments` remap (or drop) keys with
+`remapHorizontalPanOffsets`: same-index exact text first, then content match
+for reorder/insert, then same-index when both sides are still an `MD$Table` so
+streaming cell edits keep the pan. Ids removed from `setDocuments` clear their
+maps.
+
+Only `performLayout` commits pan. Dry layout must not, or a tentative narrow
+width clamps the store before the real layout. When a table temporarily fits
+(or `ScrollableTable.enabled` is false), a zero live offset does not wipe the
+stored value.
+
+Touch drag-end may fling with `ClampingScrollSimulation` (stopped on
+pointer-down, detach, `TickerMode` off, or painter rebuild). Pointer scroll
+pans only when `|dx| >= |dy|`. Mouse and stylus keep selection TapAndPan; only
+touch arms the table `HorizontalDrag`. Leading edge follows
+`MarkdownThemeData.textDirection` (right side in RTL).
+
 ## Gotchas / known limitations
 
 - `selectionColor` setter repaints surfaces directly and must **not**

@@ -35,23 +35,57 @@ abstract interface class BlockPainter {
   void dispose();
 }
 
-/// A [BlockPainter] that supports text selection. All coordinates are local to
-/// the block's top-left corner (as passed to [paint]'s `offset`).
+/// Block that is wider than its layout width and can be panned sideways.
 ///
-/// The [renderedText] should match [markdownBlockRenderedText] for the same
-/// block so that hit-testing, highlighting, and model-side extraction agree on
-/// the offset space.
+/// Return one from [MarkdownThemeData.builder] to opt in. The stock
+/// [BlockPainter$Table] does not implement this; [BlockPainter$ScrollableTable]
+/// does.
 ///
-/// Caveat: a [MarkdownThemeData.spanFilter] that drops text-bearing spans
-/// shifts the painter's offset space relative to the (unfiltered) model, so the
-/// on-screen highlight stays correct but copied text may be misaligned. Avoid
-/// dropping text-bearing spans when selection is enabled.
+/// The render object paints these glyphs outside the document [Picture] cache
+/// (clip + translate on the live canvas). Pan and fling only [markNeedsPaint],
+/// same rule as selection highlights.
 ///
-/// Caveat: a [MarkdownThemeData.blockFilter] that drops whole blocks is never
-/// highlighted on screen, but a selection spanning *across* a dropped block
-/// still copies that hidden block's text — selection extraction is model-based
-/// and does not see render-time block filtering. Avoid `blockFilter` when
-/// selection is enabled.
+/// [restoreScrollOffset] must still run when gestures are off: the table fits
+/// the width, or [BlockPainter$ScrollableTable.enabled] is false. Layout
+/// restores, then writes the store. If restore forced `0` here, a ListView
+/// remount would lose the pan.
+abstract interface class HorizontallyPannableBlock implements BlockPainter {
+  /// True when content overflows the viewport and deltas may move it.
+  bool get canPanHorizontally;
+
+  /// Horizontal pan. `0` is the leading edge for
+  /// [MarkdownThemeData.textDirection].
+  double get scrollOffset;
+
+  /// `contentWidth - viewportWidth`, or `0` when not pannable. Fling clamps
+  /// here.
+  double get maxScrollExtent;
+
+  /// Apply [deltaDx] (positive reveals the trailing side). True if the offset
+  /// changed.
+  bool applyScrollDelta(double deltaDx);
+
+  /// Re-apply a saved pan after [layout], clamped to the new max.
+  ///
+  /// Call even when [canPanHorizontally] is false for non-overflow reasons.
+  /// Clearing the offset here clears the remount store on the next sync.
+  void restoreScrollOffset(double offset);
+}
+
+/// A [BlockPainter] that supports text selection. Coordinates are local to the
+/// block's top-left (the [paint] `offset`).
+///
+/// [renderedText] must match [markdownBlockRenderedText] for the same block so
+/// hit-testing, highlighting, and copy agree on offsets.
+///
+/// If [MarkdownThemeData.spanFilter] drops text-bearing spans, the painter's
+/// offset space drifts from the model: highlight looks right, copied text does
+/// not. Avoid that filter when selection is on.
+///
+/// If [MarkdownThemeData.blockFilter] drops a whole block, it never paints a
+/// highlight, but a selection that spans across it still copies the hidden
+/// text. Extraction is model-based and does not see render-time filters. Avoid
+/// `blockFilter` when selection is on.
 abstract interface class SelectableBlockPainter implements BlockPainter {
   /// The block's rendered plain text.
   String get renderedText;
