@@ -611,12 +611,13 @@ class MarkdownSelectionController extends ChangeNotifier {
   final Map<Object, MarkdownSelectionSurface> _surfaces =
       <Object, MarkdownSelectionSurface>{};
 
-  /// Horizontal pan of overflowing tables, keyed by document id → source block
-  /// index. Lives on the controller so a virtualized chat can dispose the
-  /// render object and remount without snapping the table back to zero.
+  /// Horizontal pan of [HorizontallyPannableBlock]s, keyed by document id →
+  /// source block index. Lives on the controller so a virtualized chat can
+  /// dispose the render object and remount without snapping pan back to zero.
   /// Cleared only when the document is removed or the controller is disposed —
-  /// not when the surface merely detaches.
-  final Map<Object, Map<int, double>> _tableScrollByDoc =
+  /// not when the surface merely detaches. Remapped on [putDocument] model
+  /// changes via the same content-anchored policy as selection.
+  final Map<Object, Map<int, double>> _horizontalPanByDoc =
       <Object, Map<int, double>>{};
 
   MarkdownSelection? _selection;
@@ -633,27 +634,31 @@ class MarkdownSelectionController extends ChangeNotifier {
   @override
   void dispose() {
     _group?._remove(this);
-    _tableScrollByDoc.clear();
+    _horizontalPanByDoc.clear();
     super.dispose();
   }
 
-  /// Saved horizontal pan for an overflowing table at [blockIndex] under
-  /// [documentId], or null when none.
-  double? tableScrollOffset(Object documentId, int blockIndex) =>
-      _tableScrollByDoc[documentId]?[blockIndex];
+  /// Saved horizontal pan at [blockIndex] under [documentId], or null when
+  /// none.
+  double? horizontalPanOffset(Object documentId, int blockIndex) =>
+      _horizontalPanByDoc[documentId]?[blockIndex];
 
-  /// Records (or clears, when [offset] ≤ 0) the horizontal pan of an
-  /// overflowing table. Survives surface detach / remount.
-  void setTableScrollOffset(Object documentId, int blockIndex, double offset) {
+  /// Records (or clears, when [offset] ≤ 0) the horizontal pan of a pannable
+  /// block. Survives surface detach / remount.
+  void setHorizontalPanOffset(
+    Object documentId,
+    int blockIndex,
+    double offset,
+  ) {
     if (offset <= 0) {
-      final byBlock = _tableScrollByDoc[documentId];
+      final byBlock = _horizontalPanByDoc[documentId];
       if (byBlock == null) return;
       byBlock.remove(blockIndex);
-      if (byBlock.isEmpty) _tableScrollByDoc.remove(documentId);
+      if (byBlock.isEmpty) _horizontalPanByDoc.remove(documentId);
       return;
     }
-    _tableScrollByDoc
-        .putIfAbsent(documentId, () => <int, double>{})[blockIndex] = offset;
+    _horizontalPanByDoc.putIfAbsent(
+        documentId, () => <int, double>{})[blockIndex] = offset;
   }
 
   /// The number of registered documents. Prefer this over `documents.length`,
@@ -713,7 +718,7 @@ class MarkdownSelectionController extends ChangeNotifier {
   /// Removes a document. If the selection touched it, the selection is dropped.
   void removeDocument(Object id) {
     _docs.removeWhere((e) => e.id == id);
-    _tableScrollByDoc.remove(id);
+    _horizontalPanByDoc.remove(id);
     _reindex();
     final sel = _selection;
     if (sel != null &&
@@ -742,16 +747,61 @@ class MarkdownSelectionController extends ChangeNotifier {
 
   void _reconcile(Object id, Markdown oldModel, Markdown newModel) {
     final sel = _selection;
-    if (sel == null) return;
-    final base = sel.base.documentId == id
-        ? reconciliation.remap(sel.base, oldModel, newModel)
-        : sel.base;
-    final extent = sel.extent.documentId == id
-        ? reconciliation.remap(sel.extent, oldModel, newModel)
-        : sel.extent;
-    _selection = (base == null || extent == null)
-        ? null
-        : MarkdownSelection(base: base, extent: extent);
+    if (sel != null) {
+      final base = sel.base.documentId == id
+          ? reconciliation.remap(sel.base, oldModel, newModel)
+          : sel.base;
+      final extent = sel.extent.documentId == id
+          ? reconciliation.remap(sel.extent, oldModel, newModel)
+          : sel.extent;
+      _selection = (base == null || extent == null)
+          ? null
+          : MarkdownSelection(base: base, extent: extent);
+    }
+    _remapHorizontalPans(id, oldModel, newModel);
+  }
+
+  /// Remaps stored horizontal pan offsets for [id] from [oldModel] to
+  /// [newModel] by matching [markdownBlockRenderedText] (content-anchored).
+  void _remapHorizontalPans(Object id, Markdown oldModel, Markdown newModel) {
+    final byBlock = _horizontalPanByDoc[id];
+    if (byBlock == null || byBlock.isEmpty) return;
+
+    final remapped = <int, double>{};
+    final usedOld = <int>{};
+    final newBlocks = newModel.blocks;
+
+    for (var newIndex = 0; newIndex < newBlocks.length; newIndex++) {
+      final newText = markdownBlockRenderedText(newBlocks[newIndex]);
+
+      // Prefer same-index when content still matches.
+      final sameOffset = byBlock[newIndex];
+      if (sameOffset != null &&
+          newIndex < oldModel.blocks.length &&
+          markdownBlockRenderedText(oldModel.blocks[newIndex]) == newText &&
+          !usedOld.contains(newIndex)) {
+        remapped[newIndex] = sameOffset;
+        usedOld.add(newIndex);
+        continue;
+      }
+
+      for (final MapEntry(:key, :value) in byBlock.entries) {
+        if (usedOld.contains(key)) continue;
+        if (key >= oldModel.blocks.length) continue;
+        if (markdownBlockRenderedText(oldModel.blocks[key]) != newText) {
+          continue;
+        }
+        remapped[newIndex] = value;
+        usedOld.add(key);
+        break;
+      }
+    }
+
+    if (remapped.isEmpty) {
+      _horizontalPanByDoc.remove(id);
+    } else {
+      _horizontalPanByDoc[id] = remapped;
+    }
   }
 
   void _validateSelection() {

@@ -60,8 +60,10 @@ class MarkdownWidget extends LeafRenderObjectWidget {
     BuildContext context,
     MarkdownRenderObject renderObject,
   ) {
+    // Bind selection / pan store before updating the model so a simultaneous
+    // markdown + documentId change cannot harvest pans into the wrong doc.
     renderObject
-      ..update(markdown: markdown, theme: _resolveTheme(context))
-      ..updateSelection(_resolveController(context), documentId);
+      ..updateSelection(_resolveController(context), documentId)
+      ..update(markdown: markdown, theme: _resolveTheme(context));
   }
 }

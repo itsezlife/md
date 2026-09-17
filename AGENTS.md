@@ -38,11 +38,11 @@ benchmarks run under `dart run`.
 | `markdown.dart` | `Markdown` model + `Markdown.fromString(...)` entry point | [parser](docs/parser.md) |
 | `theme.dart` | `MarkdownThemeData` (a `ThemeExtension`), `MarkdownTheme`; `builder`/`blockFilter`/`spanFilter` hooks | [rendering](docs/rendering.md) |
 | `render.dart` | **re-export barrel** for `render/` (keeps `src/render.dart` imports working) | [rendering](docs/rendering.md) |
-| `render/block_painter.dart` | `BlockPainter` framework: interfaces + mixins (`SelectableTextBlock`, `MultiPainterSelectable`, `ParagraphGestureHandler`, `SelectableFragment`) | [rendering](docs/rendering.md) |
+| `render/block_painter.dart` | `BlockPainter` framework: interfaces + mixins (`SelectableTextBlock`, `MultiPainterSelectable`, `ParagraphGestureHandler`, `SelectableFragment`, `HorizontallyPannableBlock`) | [rendering](docs/rendering.md) |
 | `render/span_builder.dart` | `paragraphFromMarkdownSpans(...)` — the public span→`TextSpan` helper | [rendering](docs/rendering.md) |
 | `render/markdown_painter.dart` | `MarkdownPainter` orchestrator (`@meta.internal`): block list, layout, cached `ui.Picture`, hit-test | [rendering](docs/rendering.md) |
 | `render/markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface` | [rendering](docs/rendering.md) |
-| `render/blocks/*.dart` | `BlockPainter$Paragraph … $Table` — the 9 default painters | [rendering](docs/rendering.md) |
+| `render/blocks/*.dart` | `BlockPainter$Paragraph … $Table` / `$ScrollableTable` — default painters + opt-in pannable table | [rendering](docs/rendering.md) |
 | `selection.dart` | `MarkdownSelectionController`, `MarkdownPosition/Selection`, registry, reconciliation, formatters, `markdownBlockRenderedText` | [selection](docs/selection.md) |
 | `selection_scope.dart` | `MarkdownSelectionScope` — gestures, keyboard, handles, toolbar; `MarkdownSelectionGroup` | [selection](docs/selection.md) |
 | `widget.dart` | `MarkdownWidget` (`LeafRenderObjectWidget`) — the public entry widget | [rendering](docs/rendering.md) |
@@ -75,9 +75,12 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
   `_blockOffsets` by `dy`.
 - **Glyphs are cached in a `ui.Picture` keyed by size.** It is reused on repaint
   and only invalidated by `update`/`invalidateLayout`. Do not route selection or
-  scroll repaints through it.
-- **Selection highlight is painted OUTSIDE that cached Picture**, beneath the
-  glyphs. This is why a drag/streaming update never rebuilds the glyph cache and
+  scroll/pan repaints through it. **`HorizontallyPannableBlock` glyphs are painted
+  outside that Picture** (live clip + translate), same layering as selection
+  highlights — pan/fling must only `markNeedsPaint`.
+- **Selection highlight is painted OUTSIDE that cached Picture**, on top of the
+  glyphs (and clipped to the viewport for pannable blocks). This is why a
+  drag/streaming/pan update never rebuilds the glyph cache and
   why `isRepaintBoundary => controller != null`. Preserve this if you touch paint.
 - **Selection is controller-anchored on immutable models**, not on render objects,
   as `(documentId, blockIndex, renderedOffset)`. So selected text survives

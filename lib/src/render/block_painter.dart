@@ -42,12 +42,20 @@ abstract interface class BlockPainter {
 /// [BlockPainter$ScrollableTable]). The default [BlockPainter$Table] does not.
 /// Choosing a pannable painter via [MarkdownThemeData.builder] is the opt-in —
 /// not a theme-wide flag that every block implementation must honor.
+///
+/// Pannable glyphs are painted **outside** the document [Picture] cache (clip +
+/// translate on the live canvas), so pan/fling repaints never invalidate the
+/// glyph cache — same layering rule as selection highlights.
 abstract interface class HorizontallyPannableBlock implements BlockPainter {
   /// Whether content is wider than the viewport and may accept pan deltas.
   bool get canPanHorizontally;
 
   /// Current horizontal pan (`0` = leading edge).
   double get scrollOffset;
+
+  /// Maximum scroll offset (`contentWidth - viewportWidth`), or `0` when not
+  /// pannable. Used by ballistic fling to clamp the simulation.
+  double get maxScrollExtent;
 
   /// Pans content by [deltaDx] (positive reveals content on the trailing side).
   /// Returns true when the offset changed.

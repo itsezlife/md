@@ -173,6 +173,16 @@ controller (`setDocuments`/`putDocument`) — the widget does not self-register.
 Typical pattern: keep models in a list, feed them to the controller, and give each
 `MarkdownWidget` its matching `documentId`.
 
+## Horizontal pan persistence
+
+`HorizontallyPannableBlock` pan offsets (e.g. `BlockPainter$ScrollableTable`) are
+stored on the same controller as selection: `horizontalPanOffset` /
+`setHorizontalPanOffset`, keyed by `(documentId, sourceBlockIndex)`. A painter-local
+map covers same-surface rebuilds; the controller covers remount. On `putDocument`
+model changes, pan keys are remapped with the same content-anchored rendered-text
+matching as selection. Touch drag-end may run a `ClampingScrollSimulation` fling
+(cancelled on next pointer-down or painter rebuild); pointer-scroll stays discrete.
+
 ## Gotchas / known limitations
 
 - `selectionColor` setter repaints surfaces directly and must **not**

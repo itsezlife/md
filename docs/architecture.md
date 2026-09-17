@@ -63,12 +63,15 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
 
 - **Glyph cache.** `MarkdownPainter` caches one `ui.Picture` keyed by paint size;
   it is reused on every repaint and only nulled by `update`/`invalidateLayout`
-  (model/theme change or system-font change). Repaints from selection or scroll
-  must not invalidate it.
-- **Highlight outside the cache.** The selection highlight is drawn _before_ and
-  _outside_ the cached `Picture`, so drags/streaming repaint only the highlight.
-  `MarkdownRenderObject.isRepaintBoundary` is true whenever a controller is
-  attached, isolating those repaints.
+  (model/theme change or system-font change). Repaints from selection or
+  horizontal pan/fling must not invalidate it. **`HorizontallyPannableBlock`s are
+  omitted from the Picture** and painted live afterward (clip + translate), so
+  scroll offset is never baked into the cache.
+- **Highlight outside the cache.** The selection highlight is drawn _after_ and
+  _outside_ the cached `Picture` (on top of glyphs), so drags/streaming/pan
+  repaint only the highlight layer. For pannable blocks, highlight rects are
+  clipped to the block viewport. `MarkdownRenderObject.isRepaintBoundary` is true
+  whenever a controller is attached, isolating those repaints.
 - **Offset-space agreement.** A `SelectableBlockPainter`'s `renderedText` and
   fragment offsets must equal `markdownBlockRenderedText(block)` (lists join items
   with `\n`; tables join cells with `\t`, rows with `\n`; dividers/spacers are
@@ -86,10 +89,11 @@ Everything public is re-exported from `lib/flutter_md.dart`:
 - **Whole-file exports:** `markdown.dart`, `nodes.dart`, `parser.dart`,
   `selection.dart`, `selection_scope.dart`, `theme.dart`, `widget.dart`.
 - **Curated `show` from `render.dart`:** the `BlockPainter` framework
-  (`BlockPainter`, `SelectableBlockPainter`, `SelectableTextBlock`,
+  (`BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`,
+  `SelectableTextBlock`,
   `MultiPainterSelectable`, `SelectableFragment`, `ParagraphGestureHandler`,
-  `paragraphFromMarkdownSpans`) and the nine default painters
-  (`BlockPainter$Paragraph … $Spacer`).
+  `paragraphFromMarkdownSpans`) and the default painters
+  (`BlockPainter$Paragraph … $Spacer`, plus opt-in `$ScrollableTable`).
 
 Deliberately **not** public (reachable only via `import 'package:flutter_md/src/render.dart'`,
 annotated `@meta.internal`): `MarkdownPainter`, `MarkdownRenderObject`. Treat the

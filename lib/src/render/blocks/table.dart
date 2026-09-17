@@ -75,7 +75,6 @@ class BlockPainter$Table
   /// When true, overflowing column minima clip to the layout width and pan.
   final bool _enableHorizontalPan;
 
-
   /// Padding for table cells.
   static const double padding = 8.0;
 
@@ -126,13 +125,12 @@ class BlockPainter$Table
   double _contentWidth = 0.0;
 
   /// Horizontal pan of content inside the viewport (`0` = left-aligned).
-  double get scrollOffset => _scrollOffset;
+  /// Public pan API lives only on [BlockPainter$ScrollableTable].
   double _scrollOffset = 0.0;
 
   double _maxScroll = 0.0;
 
-  /// Whether this table is clipped to the layout width and can pan.
-  bool get canPanHorizontally => _enableHorizontalPan && _maxScroll > 0.0;
+  bool get _canPanHorizontally => _enableHorizontalPan && _maxScroll > 0.0;
 
   List<List<TextPainter>> _cellPainters = const [];
 
@@ -151,8 +149,8 @@ class BlockPainter$Table
 
   /// Pans content by [deltaDx] (positive reveals content on the right).
   /// Returns true when the offset changed.
-  bool applyScrollDelta(double deltaDx) {
-    if (!canPanHorizontally || deltaDx == 0.0) return false;
+  bool _applyScrollDelta(double deltaDx) {
+    if (!_canPanHorizontally || deltaDx == 0.0) return false;
     final next = (_scrollOffset + deltaDx).clamp(0.0, _maxScroll);
     if (next == _scrollOffset) return false;
     _scrollOffset = next;
@@ -162,8 +160,8 @@ class BlockPainter$Table
   /// Restores a previously saved pan after [layout] (clamped to the new
   /// [_maxScroll]). Used so theme / model rebuilds do not jump the viewport
   /// back to the leading edge.
-  void restoreScrollOffset(double offset) {
-    if (!canPanHorizontally) {
+  void _restoreScrollOffset(double offset) {
+    if (!_canPanHorizontally) {
       _scrollOffset = 0.0;
       return;
     }
@@ -427,7 +425,7 @@ class BlockPainter$Table
     // If the width is less than required do not paint anything.
     if (columns < 1) return;
 
-    final pan = canPanHorizontally;
+    final pan = _canPanHorizontally;
     if (pan) {
       canvas.save();
       canvas.clipRect(Rect.fromLTWH(0, offset, _size.width, _size.height));
@@ -540,7 +538,7 @@ class BlockPainter$Table
 ///
 /// Implements [HorizontallyPannableBlock] so the markdown render object can
 /// route horizontal drag / pointer scroll without requiring every
-/// [BlockPainter] to know about table pan.
+/// [BlockPainter] to know about pan.
 final class BlockPainter$ScrollableTable extends BlockPainter$Table
     implements HorizontallyPannableBlock {
   /// Creates a horizontally pannable table painter.
@@ -550,4 +548,19 @@ final class BlockPainter$ScrollableTable extends BlockPainter$Table
     required super.theme,
     super.alignments,
   }) : super._pannable();
+
+  @override
+  bool get canPanHorizontally => _canPanHorizontally;
+
+  @override
+  double get scrollOffset => _scrollOffset;
+
+  @override
+  double get maxScrollExtent => _maxScroll;
+
+  @override
+  bool applyScrollDelta(double deltaDx) => _applyScrollDelta(deltaDx);
+
+  @override
+  void restoreScrollOffset(double offset) => _restoreScrollOffset(offset);
 }

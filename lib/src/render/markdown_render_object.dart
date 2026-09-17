@@ -6,7 +6,9 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show MouseTrackerAnnotation;
 import 'package:meta/meta.dart' as meta show internal;
 
@@ -28,7 +30,9 @@ class MarkdownRenderObject extends RenderBox
   }) : _painter = MarkdownPainter(
           markdown: markdown,
           theme: theme,
-        );
+        ) {
+    _painter.onPaintersRebuilt = _onPaintersRebuilt;
+  }
 
   /// Painter for rendering markdown content.
   final MarkdownPainter _painter;
@@ -50,14 +54,35 @@ class MarkdownRenderObject extends RenderBox
 
   /// Touch / stylus pan over a [HorizontallyPannableBlock] (mouse uses scroll
   /// signals so selection TapAndPan is not stolen).
-  HorizontalDragGestureRecognizer? _tablePan;
+  HorizontalDragGestureRecognizer? _horizontalPan;
   HorizontallyPannableBlock? _panningBlock;
+
+  /// Ballistic fling after a touch drag ends.
+  Ticker? _ballisticTicker;
+  Simulation? _ballisticSimulation;
+  HorizontallyPannableBlock? _ballisticBlock;
+  Duration _ballisticStart = Duration.zero;
 
   void _onSelectionChange() {
     if (!_disposed) markNeedsPaint();
   }
 
   bool _disposed = false;
+
+  void _onPaintersRebuilt() {
+    _stopHorizontalPanGesture();
+  }
+
+  void _stopHorizontalPanGesture() {
+    _panningBlock = null;
+    _stopBallistic();
+  }
+
+  void _stopBallistic() {
+    _ballisticTicker?.stop();
+    _ballisticSimulation = null;
+    _ballisticBlock = null;
+  }
 
   void _attachController() {
     final controller = _controller;
@@ -81,15 +106,18 @@ class MarkdownRenderObject extends RenderBox
     Object? documentId,
   ) {
     if (identical(controller, _controller) && documentId == _documentId) {
-      _painter.bindTableScrollStore(controller, documentId);
+      _painter.bindHorizontalPanStore(controller, documentId);
       return;
     }
     _detachController();
     _controller = controller;
     _documentId = documentId;
-    _painter.bindTableScrollStore(controller, documentId);
+    _painter.bindHorizontalPanStore(controller, documentId);
     _attachController();
     if (attached) {
+      // Rebind clears local pans — relayout so painters restore from the new
+      // store (or zero) instead of keeping a stale live scrollOffset.
+      markNeedsLayout();
       markNeedsCompositingBitsUpdate();
       markNeedsPaint();
     }
@@ -269,27 +297,29 @@ class MarkdownRenderObject extends RenderBox
       }
     }
     if (event is PointerScrollEvent) {
-      _panOverflowingTable(event.localPosition, event.scrollDelta.dx);
+      _panHorizontally(event.localPosition, event.scrollDelta.dx);
     } else if (event is PointerDownEvent) {
-      _maybeArmTablePan(event);
+      _maybeArmHorizontalPan(event);
     }
     _painter.handleEvent(event);
   }
 
-  void _maybeArmTablePan(PointerDownEvent event) {
+  void _maybeArmHorizontalPan(PointerDownEvent event) {
     // Mouse selection uses TapAndPan on the scope; competing HorizontalDrag
-    // would steal table cell selection. Touch / stylus get table pan; mouse
-    // and trackpad reach the same content via [PointerScrollEvent].
+    // would steal cell selection. Touch / stylus get pan; mouse and trackpad
+    // reach the same content via [PointerScrollEvent].
     final kind = event.kind;
     if (kind != PointerDeviceKind.touch &&
         kind != PointerDeviceKind.stylus &&
         kind != PointerDeviceKind.invertedStylus) {
       return;
     }
+    // A new pointer cancels any in-flight ballistic fling.
+    _stopBallistic();
     final block = _painter.pannableBlockAt(event.localPosition);
     if (block == null) return;
     _panningBlock = block;
-    var pan = _tablePan;
+    var pan = _horizontalPan;
     if (pan == null) {
       pan = HorizontalDragGestureRecognizer()
         ..dragStartBehavior = DragStartBehavior.down
@@ -298,30 +328,72 @@ class MarkdownRenderObject extends RenderBox
           if (t == null) return;
           // Finger moving left reveals content on the right.
           if (t.applyScrollDelta(-details.delta.dx)) {
-            _painter.rememberTableScroll(t);
-            _painter.invalidatePicture();
+            _painter.rememberHorizontalPan(t);
             markNeedsPaint();
           }
         }
-        ..onEnd = (_) {
+        ..onEnd = (details) {
+          final t = _panningBlock;
           _panningBlock = null;
+          final velocity = details.primaryVelocity;
+          if (t == null || velocity == null || velocity == 0.0) return;
+          // Finger fling left (negative dx velocity) reveals trailing content
+          // (positive scroll delta) — invert for scroll axis.
+          _startBallistic(t, -velocity);
         }
         ..onCancel = () {
           _panningBlock = null;
         };
-      _tablePan = pan;
+      _horizontalPan = pan;
     }
     pan.addPointer(event);
   }
 
-  bool _panOverflowingTable(Offset local, double deltaDx) {
+  bool _panHorizontally(Offset local, double deltaDx) {
     final block = _painter.pannableBlockAt(local);
     if (block == null) return false;
     if (!block.applyScrollDelta(deltaDx)) return false;
-    _painter.rememberTableScroll(block);
-    _painter.invalidatePicture();
+    _painter.rememberHorizontalPan(block);
     markNeedsPaint();
     return true;
+  }
+
+  void _startBallistic(HorizontallyPannableBlock block, double velocity) {
+    if (!block.canPanHorizontally || velocity.abs() < 50.0) return;
+    _stopBallistic();
+    _ballisticBlock = block;
+    _ballisticSimulation = ClampingScrollSimulation(
+      position: block.scrollOffset,
+      velocity: velocity,
+    );
+    _ballisticTicker ??= Ticker(_onBallisticTick);
+    _ballisticStart = Duration.zero;
+    _ballisticTicker!.start();
+  }
+
+  void _onBallisticTick(Duration elapsed) {
+    if (_ballisticStart == Duration.zero) {
+      _ballisticStart = elapsed;
+    }
+    final simulation = _ballisticSimulation;
+    final block = _ballisticBlock;
+    if (simulation == null || block == null) {
+      _stopBallistic();
+      return;
+    }
+    final t = (elapsed - _ballisticStart).inMicroseconds /
+        Duration.microsecondsPerSecond;
+    final next = simulation.x(t).clamp(0.0, block.maxScrollExtent);
+    final delta = next - block.scrollOffset;
+    if (delta != 0.0 && block.applyScrollDelta(delta)) {
+      _painter.rememberHorizontalPan(block);
+      if (!_disposed && attached) markNeedsPaint();
+    }
+    if (simulation.isDone(t) || !block.canPanHorizontally) {
+      _stopBallistic();
+      // Ticker.stop does not dispose; keep for reuse.
+      _ballisticTicker?.stop();
+    }
   }
 
   /// Handles system font changes by marking the render object as needing layout
@@ -336,7 +408,7 @@ class MarkdownRenderObject extends RenderBox
   void attach(PipelineOwner owner) {
     super.attach(owner);
     PaintingBinding.instance.systemFonts.addListener(_handleSystemFontsChange);
-    _painter.bindTableScrollStore(_controller, _documentId);
+    _painter.bindHorizontalPanStore(_controller, _documentId);
     _controller?.attachSurface(this);
   }
 
@@ -356,6 +428,10 @@ class MarkdownRenderObject extends RenderBox
     }
   }
 
+  /// The internal painter — tests use this to assert pan / picture cache.
+  @visibleForTesting
+  MarkdownPainter get debugPainter => _painter;
+
   @override
   @protected
   void detach() {
@@ -370,8 +446,11 @@ class MarkdownRenderObject extends RenderBox
   void dispose() {
     _disposed = true;
     _controller?.removeListener(_onSelectionChange);
-    _tablePan?.dispose();
-    _tablePan = null;
+    _stopBallistic();
+    _ballisticTicker?.dispose();
+    _ballisticTicker = null;
+    _horizontalPan?.dispose();
+    _horizontalPan = null;
     _panningBlock = null;
     super.dispose();
     _painter.dispose();
@@ -393,8 +472,8 @@ class MarkdownRenderObject extends RenderBox
     // Paint the selection highlight OUTSIDE the cached content Picture, but ON
     // TOP of the glyphs, so a translucent highlight stays visible even over
     // opaque block/inline backgrounds (code fences, `inline code`, ==mark==).
-    // Still outside the Picture, so drag/streaming repaints never rebuild the
-    // glyph cache (the S7 invariant holds).
+    // Still outside the Picture, so drag/streaming/pan repaints never rebuild
+    // the glyph cache (the S7 invariant holds).
     final controller = _controller;
     final id = _documentId;
     if (controller != null && id != null) {

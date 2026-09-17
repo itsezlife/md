@@ -11,18 +11,19 @@ canvas via one `RenderBox` and a list of `BlockPainter`s — **no widget per blo
 
 | File | Contents |
 |---|---|
-| `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, private `_distanceToRect`. |
+| `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, private `_distanceToRect`. |
 | `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle})` → `TextSpan`; private `_buildTapRecognizer` (link taps from `span.extra['url']`). |
 | `markdown_painter.dart` | `MarkdownPainter` (`@meta.internal`) — the orchestrator. |
 | `markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface`; plus `_paintNothing`. |
-| `blocks/*.dart` | `BlockPainter$Paragraph, $Heading, $Quote, $Alert, $Code, $List` (+ private `_ListItemMetrics`), `$Table`, `$Divider`, `$Spacer`. |
+| `blocks/*.dart` | `BlockPainter$Paragraph, $Heading, $Quote, $Alert, $Code, $List` (+ private `_ListItemMetrics`), `$Table`, `$ScrollableTable`, `$Divider`, `$Spacer`. |
 
 ## Render flow
 
 `MarkdownWidget` (`LeafRenderObjectWidget`) → `createRenderObject` builds a
 `MarkdownRenderObject` then `updateSelection(controller, documentId)`;
-`updateRenderObject` calls `update(markdown, theme)` + `updateSelection(...)`.
-Theme resolution: explicit `theme` → `MarkdownTheme.maybeOf(context)` → a default
+`updateRenderObject` calls `updateSelection(...)` then `update(markdown, theme)`
+(bind pan store before model rebuild). Theme resolution: explicit `theme` →
+`MarkdownTheme.maybeOf(context)` → a default
 from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
 
 `MarkdownRenderObject` (a `RenderBox`, not `sizedByParent`) owns one
@@ -35,22 +36,28 @@ from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
   _defaultBlockBuilder`; for each non-filtered block appends
   `builder(block, theme) ?? _defaultBlockBuilder(block, theme)` to
   `_blockPainters`, records the true `Markdown.blocks` index in `_sourceIndices`,
-  sizes `_blockOffsets`. `_defaultBlockBuilder` is a `block.map(...)` to the nine
-  `BlockPainter$*` constructors.
+  sizes `_blockOffsets`. Harvests horizontal pans with rendered-text identity and
+  remaps them content-anchored onto the new painters. `_defaultBlockBuilder` is a
+  `block.map(...)` to the default `BlockPainter$*` constructors (tables use
+  non-pannable `$Table`; opt into `$ScrollableTable` via `builder`).
 - **Layout:** per-block, top-to-bottom. Writes each block's top-`y` into
-  `_blockOffsets[i]`, calls `block.layout(maxWidth)`, accumulates height, tracks
-  max width. **No inter-block spacing** is added — a `MD$Spacer` block supplies gaps.
-- **Paint:** guarded by `!_needsLayout`. **Glyphs are cached in a `ui.Picture`
-  keyed by size** — if `_lastSize == size`, the picture is replayed via
-  `drawPicture`; otherwise it re-records (walking blocks, `painter.paint($canvas,
-  size, offset)`, advancing `offset += painter.size.height`). The cache is nulled
-  only by `update` (model/theme change) and `invalidateLayout` (system fonts). An
-  overflow guard stops emitting blocks past the viewport height.
+  `_blockOffsets[i]`, calls `block.layout(maxWidth)`, restores horizontal pan from
+  the local map or controller, accumulates height, tracks max width. **No
+  inter-block spacing** is added — a `MD$Spacer` block supplies gaps.
+- **Paint:** guarded by `!_needsLayout`. **Non-pannable glyphs are cached in a
+  `ui.Picture` keyed by size** — if `_lastSize == size`, the picture is replayed
+  via `drawPicture`; otherwise it re-records only non-`HorizontallyPannableBlock`
+  painters. Pannable blocks always paint live afterward (each applies its own
+  clip + translate). The cache is nulled only by `update` (model/theme change) and
+  `invalidateLayout` (system fonts). An overflow guard stops emitting blocks past
+  the viewport height.
 - **Hit-testing** (`_blockIndexForDy`): **binary search** over `_blockOffsets`.
   `positionForLocal` maps a content-local offset → `(sourceBlockIndex, textOffset)`
   (null if the hit block isn't a `SelectableBlockPainter`). `handleEvent` routes
   tap-down/up to the block, re-basing the pointer into block-local space (a manual
-  `PointerEvent` clone, since `PointerEvent` has no `copyWith`).
+  `PointerEvent` clone, since `PointerEvent` has no `copyWith`). Touch/stylus
+  horizontal drag and pointer-scroll pan hit `pannableBlockAt`; drag-end may start
+  a `ClampingScrollSimulation` ballistic fling (cancelled on pointer-down / rebuild).
 - **System fonts:** `MarkdownRenderObject.attach` listens on
   `PaintingBinding.instance.systemFonts`; a change calls `invalidateLayout` (nulls
   the cache, disposes+rebuilds every block painter so `TextPainter`s re-layout) +
@@ -165,6 +172,8 @@ and expose `fragments` + `renderedText`.
   column widths via `_distributeWidths` (natural if they fit, else shrink toward
   per-column min = longest-word width, else overflow); zebra rows, cached inner
   grid + outer border; `MultiPainterSelectable`, cells joined `\t`, rows `\n`.
+  Default `$Table` may overflow the max width (historical). Opt-in
+  `$ScrollableTable` implements `HorizontallyPannableBlock` (clip + pan).
 - **`$Divider`** — one horizontal line across `size.width`; not selectable.
 - **`$Spacer`** — blank vertical gap `Size(0, fontSize * count)`; `paint` is a
   no-op; not selectable.
@@ -201,22 +210,24 @@ strikethrough/monospace + highlight/monospace backgrounds + link color),
 ## Public vs internal
 
 Public (in `flutter_md.dart`'s `show` list): the framework
-(`BlockPainter`, `SelectableBlockPainter`, `SelectableTextBlock`,
+(`BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`,
+`SelectableTextBlock`,
 `MultiPainterSelectable`, `SelectableFragment`, `ParagraphGestureHandler`,
-`paragraphFromMarkdownSpans`) and the nine defaults (`BlockPainter$Paragraph …
-$Spacer`). Internal (`@meta.internal`, only via `src/render.dart`):
-`MarkdownPainter`, `MarkdownRenderObject`.
+`paragraphFromMarkdownSpans`) and the default painters (`BlockPainter$Paragraph …
+$Spacer`, plus opt-in `$ScrollableTable`). Internal (`@meta.internal`, only via
+`src/render.dart`): `MarkdownPainter`, `MarkdownRenderObject`.
 
 ## Invariants (repeated from [architecture](architecture.md), owned here)
 
 - Glyphs cached in a `ui.Picture` keyed by size; reused on repaint; nulled only on
-  `update`/`invalidateLayout`.
+  `update`/`invalidateLayout`. **Pannable blocks paint outside that Picture.**
 - **Selection highlight is painted outside that cache, on top of the glyphs**
   (`MarkdownRenderObject.paint` calls `_painter.paint(...)` then
-  `_painter.paintHighlight(...)`), so drags/streaming never rebuild the glyph
+  `_painter.paintHighlight(...)`), so drags/streaming/pan never rebuild the glyph
   cache, and a translucent highlight stays visible over opaque block/inline
   backgrounds (code fences, `inline code`, `==mark==`). Color =
-  `controller.selectionColor ?? _kSelectionColor` (`0x552196F3`).
+  `controller.selectionColor ?? _kSelectionColor` (`0x552196F3`). Pannable-block
+  highlights are clipped to the block viewport.
 - `isRepaintBoundary => controller != null`; `alwaysNeedsCompositing => false`.
 - Handle `LeaderLayer`s are pushed in `paint` (only when a scope supplied
   start/end `LayerLink` + local offset) so native handles follow scrolling content.
