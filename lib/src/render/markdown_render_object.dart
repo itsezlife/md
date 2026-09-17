@@ -65,12 +65,6 @@ class MarkdownRenderObject extends RenderBox
   final LayerHandle<LeaderLayer> _startHandleLayer = LayerHandle<LeaderLayer>();
   final LayerHandle<LeaderLayer> _endHandleLayer = LayerHandle<LeaderLayer>();
 
-  /// Whether this surface currently owns a start and/or end handle leader.
-  @visibleForTesting
-  bool get debugHasSelectionHandleLeaders =>
-      (_startHandleLink != null && _startHandleLocal != null) ||
-      (_endHandleLink != null && _endHandleLocal != null);
-
   /// Touch pan over a [HorizontallyPannableBlock]. Mouse / stylus / trackpad
   /// keep selection TapAndPan (or pointer scroll); a competing HorizontalDrag
   /// on those kinds would steal cell selection.
@@ -82,6 +76,14 @@ class MarkdownRenderObject extends RenderBox
   Simulation? _ballisticSimulation;
   HorizontallyPannableBlock? _ballisticBlock;
   Duration _ballisticStart = Duration.zero;
+
+  /// Whether [paint] will push a start and/or end [LeaderLayer] this frame.
+  ///
+  /// Drives [alwaysNeedsCompositing]; keep it in lockstep with the conditions
+  /// in [paint] or a leader can be pushed without a composited layer for it.
+  bool get _pushesHandleLeaderLayers =>
+      (_startHandleLink != null && _startHandleLocal != null) ||
+      (_endHandleLink != null && _endHandleLocal != null);
 
   /// Mirrors [TickerMode.valuesOf(context).enabled] from the [MarkdownWidget]
   /// element. Offstage / disabled routes mute the fling ticker without a
@@ -100,6 +102,10 @@ class MarkdownRenderObject extends RenderBox
       _ballisticTicker?.stop();
     }
   }
+
+  /// Whether this surface currently owns a start and/or end handle leader.
+  @visibleForTesting
+  bool get debugHasSelectionHandleLeaders => _pushesHandleLeaderLayers;
 
   void _onSelectionChange() {
     if (!_disposed) markNeedsPaint();
@@ -122,7 +128,7 @@ class MarkdownRenderObject extends RenderBox
     _ballisticBlock = null;
   }
 
-  void _attachController() {
+  void _attachController({Markdown? markdown}) {
     final controller = _controller;
     final id = _documentId;
     if (controller == null || id == null) return;
@@ -131,7 +137,11 @@ class MarkdownRenderObject extends RenderBox
       // Mounted surfaces must exist in the registry so [rangeFor] / ordering
       // can resolve them. AppMarkdown also putDocuments; this heals races where
       // the RO attaches before (or without) an app-level registration.
-      controller.putDocument(id, _painter.markdown);
+      //
+      // [markdown] is the model of the *incoming* document when a recycled
+      // element is rewired onto another id — [_painter] still holds the
+      // outgoing one until [update] runs.
+      controller.putDocument(id, markdown ?? _painter.markdown);
       controller.attachSurface(this);
     }
   }
@@ -146,11 +156,21 @@ class MarkdownRenderObject extends RenderBox
 
   /// Wires (or rewires) this render object to a selection [controller] under
   /// [documentId]. Passing a null controller makes it non-selectable (inert).
+  ///
+  /// [markdown] is the model the *incoming* [documentId] should be healed with.
+  /// It matters when a list recycles this render object from one message onto
+  /// another: the painter still holds the outgoing model at that point, and
+  /// registering it under the incoming id would overwrite that document's
+  /// registry entry with the wrong body.
+  ///
+  /// Must run **before** [update] on a rewire so the registry write that
+  /// [update] performs lands on the new id.
   @meta.internal
   void updateSelection(
     MarkdownSelectionController? controller,
-    Object? documentId,
-  ) {
+    Object? documentId, {
+    Markdown? markdown,
+  }) {
     if (identical(controller, _controller) && documentId == _documentId) {
       _painter.bindHorizontalPanStore(controller, documentId);
       return;
@@ -159,7 +179,7 @@ class MarkdownRenderObject extends RenderBox
     _controller = controller;
     _documentId = documentId;
     _painter.bindHorizontalPanStore(controller, documentId);
-    _attachController();
+    _attachController(markdown: markdown);
     if (attached) {
       // Rebind clears local pans — relayout so painters restore from the new
       // store (or zero) instead of keeping a stale live scrollOffset.
@@ -380,7 +400,7 @@ class MarkdownRenderObject extends RenderBox
   bool get isRepaintBoundary => _controller != null;
 
   @override
-  bool get alwaysNeedsCompositing => debugHasSelectionHandleLeaders;
+  bool get alwaysNeedsCompositing => _pushesHandleLeaderLayers;
 
   @override
   bool get sizedByParent => false;

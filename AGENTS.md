@@ -76,12 +76,13 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
 - **Glyphs are cached in a `ui.Picture` keyed by size.** It is reused on repaint
   and only invalidated by `update`/`invalidateLayout`. Do not route selection or
   scroll/pan repaints through it. **`HorizontallyPannableBlock` glyphs are painted
-  outside that Picture** (live clip + translate), same layering as selection
+  outside that Picture** (live clip + translate), same layering rule as selection
   highlights — pan/fling must only `markNeedsPaint`.
-- **Selection highlight is painted OUTSIDE that cached Picture**, on top of the
-  glyphs (and clipped to the viewport for pannable blocks). This is why a
-  drag/streaming/pan update never rebuilds the glyph cache and
-  why `isRepaintBoundary => controller != null`. Preserve this if you touch paint.
+- **Selection highlight is painted OUTSIDE that cached Picture** (under glyphs
+  for normal text, and again above opaque block chrome such as code fences /
+  table fills). Pannable-block highlights are clipped to the block viewport.
+  Drag/streaming/pan updates must not rebuild the glyph cache;
+  `isRepaintBoundary => controller != null`. Preserve this if you touch paint.
 - **Selection is controller-anchored on immutable models**, not on render objects,
   as `(documentId, blockIndex, renderedOffset)`. So selected text survives
   `ListView` disposal (scrolled-off chat messages). A block's on-screen offset

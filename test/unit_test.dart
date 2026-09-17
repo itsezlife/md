@@ -12,15 +12,22 @@ import 'parser/math_test.dart' as math_test;
 import 'parser/parser_test.dart' as parser_test;
 import 'parser/regression_test.dart' as regression_test;
 import 'parser/streaming_test.dart' as streaming_test;
+import 'render/horizontal_pan_test.dart' as horizontal_pan_test;
 import 'selection/markup_formatter_test.dart' as markup_formatter_test;
+import 'selection/selection_autoscroll_target_test.dart'
+    as selection_autoscroll_target_test;
 import 'selection/selection_autoscroll_test.dart' as selection_autoscroll_test;
+import 'selection/selection_chrome_test.dart' as selection_chrome_test;
 import 'selection/selection_handle_endpoints_test.dart'
     as selection_handle_endpoints_test;
 import 'selection/selection_handles_test.dart' as selection_handles_test;
+import 'selection/selection_host_gates_test.dart' as selection_host_gates_test;
 import 'selection/selection_keyboard_test.dart' as selection_keyboard_test;
+import 'selection/selection_nested_blocks_test.dart'
+    as selection_nested_blocks_test;
+import 'selection/selection_registry_test.dart' as selection_registry_test;
 import 'selection/selection_test.dart' as selection_test;
 import 'selection/selection_widget_test.dart' as selection_widget_test;
-import 'render/horizontal_pan_test.dart' as horizontal_pan_test;
 import 'theme/theme_test.dart' as theme_test;
 import 'widget/render_test.dart' as render_test;
 import 'widget/widget_test.dart' as widget_test;
@@ -38,6 +45,7 @@ void main() => group('Unit', () {
       nodes_test.main();
       highlight_test.main();
       theme_test.main();
+      horizontal_pan_test.main();
       selection_test.main();
       markup_formatter_test.main();
       selection_widget_test.main();
@@ -45,8 +53,12 @@ void main() => group('Unit', () {
       selection_handles_test.main();
       selection_handle_endpoints_test.main();
       selection_autoscroll_test.main();
+      selection_autoscroll_target_test.main();
+      selection_host_gates_test.main();
+      selection_registry_test.main();
+      selection_chrome_test.main();
+      selection_nested_blocks_test.main();
       line_clamp_test.main();
-      horizontal_pan_test.main();
       render_test.main();
       widget_test.main();
     });

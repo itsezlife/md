@@ -229,8 +229,20 @@ class BlockPainter$Table
   // pointers in and map boxes back out so chrome tracks the clipped paint.
 
   @override
+  (int, TextAffinity) positionAndAffinityForLocal(Offset local) =>
+      super.positionAndAffinityForLocal(_toContent(local));
+
+  @override
   int offsetForLocalPosition(Offset local) =>
       super.offsetForLocalPosition(_toContent(local));
+
+  @override
+  Rect caretRectFor(int offset, TextAffinity affinity) {
+    final rect = super.caretRectFor(offset, affinity);
+    final pan = _pan;
+    if (pan == null) return rect;
+    return pan.toViewport(<Rect>[rect], theme.textDirection).first;
+  }
 
   @override
   List<Rect> boxesForRange(int start, int end) {
@@ -246,6 +258,17 @@ class BlockPainter$Table
 
   @override
   bool isLinkAtLocal(Offset local) => super.isLinkAtLocal(_toContent(local));
+
+  @override
+  bool hitsRenderedTextAt(Offset local) {
+    if (local.dx < 0 ||
+        local.dx > _size.width ||
+        local.dy < 0 ||
+        local.dy > _size.height) {
+      return false;
+    }
+    return super.hitsRenderedTextAt(_toContent(local));
+  }
 
   @override
   void handleTapDown(PointerDownEvent event) {

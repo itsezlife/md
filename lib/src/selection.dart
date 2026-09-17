@@ -704,10 +704,17 @@ class MarkdownHandleEndpoints {
 }
 
 class _DocEntry {
-  _DocEntry(this.id, this.model, this.order);
+  _DocEntry(this.id, this.model, this.order, this.seq);
+
   final Object id;
   Markdown model;
   int order;
+
+  /// Monotonic registration sequence. Breaks [order] ties deterministically —
+  /// `List.sort` is not stable, so two documents sharing an order would
+  /// otherwise swap places on any re-sort (a model update, a new mount) and
+  /// silently reverse extracted text.
+  final int seq;
 }
 
 /// The single source of truth for a Markdown selection.
@@ -775,6 +782,19 @@ class MarkdownSelectionController extends ChangeNotifier
   /// size and show up during drags.
   final Map<Object, int> _indexById = <Object, int>{};
 
+  /// Monotonic registration counter feeding [_DocEntry.seq].
+  int _nextSeq = 0;
+
+  /// An order that sorts after every currently registered document.
+  int _nextAppendOrder() {
+    if (_docs.isEmpty) return 0;
+    var max = _docs.first.order;
+    for (final entry in _docs) {
+      if (entry.order > max) max = entry.order;
+    }
+    return max + 1;
+  }
+
   /// Per-document attach stack. Several render objects may register under the
   /// same [MarkdownSelectionSurface.documentId] at once (crossfade, recycle,
   /// overlapping mounts). A single-slot map would let a later attach overwrite
@@ -782,6 +802,15 @@ class MarkdownSelectionController extends ChangeNotifier
   /// surviving mount unhittable until remount. Oldest attach stays primary.
   final Map<Object, List<MarkdownSelectionSurface>> _surfaceStacks =
       <Object, List<MarkdownSelectionSurface>>{};
+
+  /// Horizontal pans keyed by document id then source block index.
+  ///
+  /// Lives on the controller so a virtualized chat can dispose a body and
+  /// remount without snapping tables to zero. Cleared when the document leaves
+  /// the registry ([removeDocument] / [setDocuments]); remapped on model
+  /// changes with [remapHorizontalPanOffsets]. Detach alone does not clear it.
+  final Map<Object, Map<int, double>> _horizontalPanByDoc =
+      <Object, Map<int, double>>{};
 
   MarkdownSelectionSurface? _surfaceFor(Object documentId) {
     final stack = _surfaceStacks[documentId];
@@ -795,15 +824,6 @@ class MarkdownSelectionController extends ChangeNotifier
   /// Parent [State.dispose] can run while the child's render object is still
   /// attached, so an eager remove leaves a hittable surface with `di=-1`.
   final Set<Object> _pendingRemoveIds = <Object>{};
-
-  /// Horizontal pans keyed by document id then source block index.
-  ///
-  /// Lives on the controller so a virtualized chat can dispose a body and
-  /// remount without snapping tables to zero. Cleared when the document leaves
-  /// the registry ([removeDocument] / [setDocuments]); remapped on model
-  /// changes with [remapHorizontalPanOffsets]. Detach alone does not clear it.
-  final Map<Object, Map<int, double>> _horizontalPanByDoc =
-      <Object, Map<int, double>>{};
 
   MarkdownSelection? _selection;
 
@@ -982,7 +1002,8 @@ class MarkdownSelectionController extends ChangeNotifier
       for (final e in _docs) e.id: e.model,
     };
     final next = <_DocEntry>[
-      for (final (i, d) in docs.indexed) _DocEntry(d.id, d.model, d.order ?? i),
+      for (final (i, d) in docs.indexed)
+        _DocEntry(d.id, d.model, d.order ?? i, _nextSeq++),
     ];
     final nextIds = <Object>{for (final e in next) e.id};
 
@@ -1009,8 +1030,12 @@ class MarkdownSelectionController extends ChangeNotifier
     _pendingRemoveIds.remove(id);
     final idx = _orderIndex(id);
     if (idx < 0) {
-      final assigned = order ?? _docs.length;
-      _docs.add(_DocEntry(id, model, assigned));
+      // No explicit order (the render-object heal path) means "append".
+      // `_docs.length` would sort ahead of sparse explicit orders — chat
+      // hosts key `order` on the message id, so a healed body would jump to
+      // the front of the conversation and reverse extracted text.
+      final assigned = order ?? _nextAppendOrder();
+      _docs.add(_DocEntry(id, model, assigned, _nextSeq++));
       _sort();
       notifyListeners();
       return;
@@ -1059,7 +1084,10 @@ class MarkdownSelectionController extends ChangeNotifier
   // documents sharing an identical `order` have unspecified relative order —
   // callers should supply unique `order` values (e.g. the message index).
   void _sort() {
-    _docs.sort((a, b) => a.order.compareTo(b.order));
+    _docs.sort((a, b) {
+      final byOrder = a.order.compareTo(b.order);
+      return byOrder != 0 ? byOrder : a.seq.compareTo(b.seq);
+    });
     _reindex();
   }
 

@@ -67,7 +67,11 @@ class MarkdownWidget extends LeafRenderObjectWidget {
         theme: _resolveTheme(context),
         cursorResolver: cursorResolver,
       )
-        ..updateSelection(_resolveController(context), documentId)
+        ..updateSelection(
+          _resolveController(context),
+          documentId,
+          markdown: markdown,
+        )
         ..setTickerModeEnabled(TickerMode.valuesOf(context).enabled);
 
   @override
@@ -76,9 +80,15 @@ class MarkdownWidget extends LeafRenderObjectWidget {
     MarkdownRenderObject renderObject,
   ) {
     // Bind selection / pan store before updating the model so a simultaneous
-    // markdown + documentId change cannot harvest pans into the wrong doc.
+    // markdown + documentId change cannot harvest pans into the wrong doc,
+    // and [update]'s registry write lands on the incoming id (recycled
+    // elements change [documentId] and [markdown] together).
     renderObject
-      ..updateSelection(_resolveController(context), documentId)
+      ..updateSelection(
+        _resolveController(context),
+        documentId,
+        markdown: markdown,
+      )
       ..setTickerModeEnabled(TickerMode.valuesOf(context).enabled)
       ..update(
         markdown: markdown,

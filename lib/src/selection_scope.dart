@@ -221,6 +221,13 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   final MarkdownAutoscrollSession _autoscrollSession =
       MarkdownAutoscrollSession();
 
+  /// Scroll surface resolved for the live drag.
+  ///
+  /// Resolving walks the element tree (to find the surface element, then the
+  /// enclosing [Scrollable]); the result is stable for a drag, so it is cached
+  /// and only re-resolved when it stops reporting a usable viewport.
+  MarkdownAutoscrollTarget? _autoscrollTarget;
+
   /// When true, skip creating/showing handles (Android long-press: show on end).
   bool _deferHandleShow = false;
 
@@ -232,6 +239,10 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
 
   /// Coalesces post-frame handle-overlay syncs deferred off layout/build.
   bool _overlaySyncScheduled = false;
+
+  /// Coalesces post-frame [MarkdownSelectionScope.onSelectionChanged] delivery
+  /// for controller notifications that land during build / layout.
+  bool _selectionChangedNotifyScheduled = false;
 
   /// Ancestor observer (e.g. [Scaffold]) so the toolbar follows parent scrolls
   /// when this scope is a scrollable *child*, not an ancestor.
@@ -288,6 +299,14 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     if (oldWidget.selectionColor != widget.selectionColor) {
       _applySelectionColor();
     }
+    if (oldWidget.autoscroll != widget.autoscroll && _dragGlobal == null) {
+      // Pick up a new resolver / pads on the next drag. Never mid-drag:
+      // [MarkdownSelectionAutoscrollConfig] has no value equality, so a host
+      // that builds the config inline (a closure resolver always does) would
+      // otherwise invalidate the cached surface on every rebuild — and an
+      // autoscrolling list rebuilds every frame.
+      _autoscrollTarget = null;
+    }
     // Host may enable the scope after arming a subject / range. Sync handles
     // and restore the toolbar when chrome becomes eligible. Disabling clears
     // visible chrome but keeps [toolbarWanted] so a later enable can restore.
@@ -338,6 +357,31 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     }
   }
 
+  /// Delivers [sel] to [MarkdownSelectionScope.onSelectionChanged].
+  ///
+  /// The controller can notify from inside build / layout: a streaming
+  /// `putDocument` runs from `MarkdownWidget.updateRenderObject` and may
+  /// reconcile the range away, and a deferred `removeDocument` flushes from
+  /// `RenderObject.detach`. Hosts routinely `setState` from this callback, so
+  /// a synchronous call there throws "setState() called during build".
+  /// Coalesce to the end of the frame and deliver the settled selection.
+  void _notifySelectionChanged(MarkdownSelection? sel) {
+    if (widget.onSelectionChanged == null) return;
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (phase != SchedulerPhase.persistentCallbacks &&
+        phase != SchedulerPhase.midFrameMicrotasks) {
+      widget.onSelectionChanged?.call(sel);
+      return;
+    }
+    if (_selectionChangedNotifyScheduled) return;
+    _selectionChangedNotifyScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _selectionChangedNotifyScheduled = false;
+      if (!mounted) return;
+      widget.onSelectionChanged?.call(controller.selection);
+    });
+  }
+
   void _applySelectionColor() {
     controller.selectionColor = widget.selectionColor ??
         DefaultSelectionStyle.of(context).selectionColor;
@@ -347,7 +391,7 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     final sel = controller.selection;
     if (sel != _lastSelection) {
       _lastSelection = sel;
-      widget.onSelectionChanged?.call(sel);
+      _notifySelectionChanged(sel);
       // Selection moved — on mobile, drop a frozen right-click anchor so
       // the toolbar tracks the live selection bounds instead. On desktop,
       // preserve the user's secondary-click anchor.
@@ -357,7 +401,11 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     }
 
     if (sel case final current? when !current.isCollapsed) {
-      if (_dragGlobal == null) {
+      if (!_ownsChromeForCurrentSelection) {
+        // Sibling / prior subject: drop this scope's overlay without clearing
+        // [toolbarWanted] (the owning scope may still need restore intent).
+        _contextMenuController.remove();
+      } else if (_dragGlobal == null) {
         // Outside a drag: restore when [toolbarWanted] (scroll remount /
         // geometry change). Skip while disabled — chrome comes back on
         // the enabled flip in [didUpdateWidget].
@@ -454,6 +502,9 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   void _updateHandlesAndOverlay() {
     if (!_handlesEnabled) {
       _clearHandles();
+      // Losing chrome ownership (or disabled) must also drop a lingering
+      // context menu — handles alone were cleared before.
+      _contextMenuController.remove();
       return;
     }
     final endpoints = controller.selectionHandleEndpoints();
@@ -576,6 +627,7 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     _dragMovesStartEdge = isStart;
     _dragGlobal = d.globalPosition;
     _autoscrollSession.reset();
+    _autoscrollTarget = null;
     hideToolbar();
     _selectionOverlay
         ?.showMagnifier(_magnifierInfo(d.globalPosition, isStart: isStart));
@@ -664,6 +716,7 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   void _stopAutoscroll() {
     _pauseAutoscrollTicker();
     _autoscrollSession.reset();
+    _autoscrollTarget = null;
     _dragGlobal = null;
     _dragIsHandle = false;
   }
@@ -699,30 +752,15 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
           return;
         }
 
-        // Prefer a BuildContext under a mounted surface so Scrollable.maybeOf
-        // walks up to the enclosing ListView (scope context is an ancestor of
-        // the scrollable, not a descendant).
-        MarkdownSelectionSurface? content;
-        for (final surface in controller.mountedSurfaces) {
-          if (surface.globalBounds.contains(position)) {
-            content = surface;
-            break;
-          }
+        final target = _resolveAutoscrollTarget(position);
+        if (target == null) {
+          _pauseAutoscrollTicker();
+          return;
         }
-        content ??= switch (controller.mountedSurfaces) {
-          final surfaces when surfaces.isEmpty => null,
-          final surfaces => surfaces.first,
-        };
-        final scrollContext = switch (content) {
-              final surface? => _contextForSurface(surface),
-              null => null,
-            } ??
-            _scrollableContextNear(position) ??
-            context;
 
         final result = applyMarkdownSelectionAutoscroll(
           globalPosition: position,
-          context: scrollContext,
+          target: target,
           config: widget.autoscroll,
           lastTimestamp: _lastAutoscrollTimestamp,
           storeTimestamp: (t) => _lastAutoscrollTimestamp = t,
@@ -767,6 +805,55 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   /// Pointer-driven autoscroll step: only starts the ticker when scrolling.
   void _driveAutoscroll() {
     _tickAutoscroll();
+  }
+
+  /// The scroll surface this drag drives, resolved once and cached.
+  ///
+  /// A host with its own scroll protocol supplies
+  /// [MarkdownSelectionAutoscrollConfig.targetResolver]; otherwise the nearest
+  /// ancestor [Scrollable] of a mounted markdown surface is used (the scope
+  /// itself usually sits *above* that scrollable, so its own context cannot
+  /// find it).
+  MarkdownAutoscrollTarget? _resolveAutoscrollTarget(Offset globalPosition) {
+    if (_autoscrollTarget case final cached?) {
+      if (cached.viewport?.isUsable ?? false) return cached;
+      _autoscrollTarget = null;
+    }
+    // Prefer a BuildContext under a mounted surface so Scrollable.maybeOf
+    // walks up to the enclosing ListView (scope context is an ancestor of
+    // the scrollable, not a descendant).
+    MarkdownSelectionSurface? content;
+    for (final surface in controller.mountedSurfaces) {
+      if (surface.globalBounds.contains(globalPosition)) {
+        content = surface;
+        break;
+      }
+    }
+    content ??= switch (controller.mountedSurfaces) {
+      final surfaces when surfaces.isEmpty => null,
+      final surfaces => surfaces.first,
+    };
+    final contentContext = switch (content) {
+      final surface? => _contextForSurface(surface),
+      null => null,
+    };
+
+    if (widget.autoscroll.targetResolver case final resolver?) {
+      final target = resolver(MarkdownAutoscrollRequest(
+        scopeContext: context,
+        contentContext: contentContext,
+        globalPosition: globalPosition,
+        config: widget.autoscroll,
+      ));
+      return _autoscrollTarget = target;
+    }
+
+    final scrollContext =
+        contentContext ?? _scrollableContextNear(globalPosition) ?? context;
+    return _autoscrollTarget = resolveMarkdownScrollableAutoscrollTarget(
+      context: scrollContext,
+      config: widget.autoscroll,
+    );
   }
 
   /// Element whose [RenderObject] is [surface], if mounted under this scope.
@@ -1357,6 +1444,7 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     hideToolbar();
     _dragIsHandle = false;
     _autoscrollSession.reset();
+    _autoscrollTarget = null;
     if (_shiftHeld && effective <= 1) {
       if (controller.selection case final _?) {
         // Extending an existing range may clamp through gaps.
@@ -1376,7 +1464,12 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     _dragGlobal = d.globalPosition;
     // Multi-tap may already have anchored on tapDown; still re-begin so a
     // drag that starts without a clean tapUp keeps the right granularity.
-    _beginSelection(d.globalPosition, d.consecutiveTapCount);
+    // A refusal (host gate / miss) must also un-arm the drag, otherwise
+    // [_handleDragUpdate] would keep extending from a point the host owns.
+    if (!_beginSelection(d.globalPosition, d.consecutiveTapCount)) {
+      _dragGlobal = null;
+      return;
+    }
     _driveAutoscroll();
   }
 
@@ -1408,6 +1501,12 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
       }
       return;
     }
+    if (_dragGlobal != null) {
+      // Absolute toolbar anchors are dormant mid-drag; handles still track
+      // via LeaderLayer. Drag-end [showToolbar] re-presents.
+      _syncOverlay();
+      return;
+    }
     _refreshToolbarForVisibleGeometry();
     // Scroll notifications can run before child layout finishes (common when
     // the scope itself was outside the viewport cache). Retry next frame.
@@ -1425,7 +1524,9 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   }
 
   void _scheduleToolbarGeometryRefresh() {
-    if (!controller.toolbarWanted || _toolbarGeometryRefreshScheduled) {
+    if (!controller.toolbarWanted ||
+        _dragGlobal != null ||
+        _toolbarGeometryRefreshScheduled) {
       return;
     }
     _toolbarGeometryRefreshScheduled = true;
@@ -1442,6 +1543,10 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   /// Must not run during layout/build — geometry walks use [localToGlobal].
   void _refreshToolbarForVisibleGeometry() {
     if (!widget.enabled || !controller.toolbarWanted) return;
+    // Mid-drag: keep the menu hidden until drag-end [showToolbar]. Scroll /
+    // remount restore must not re-present while a pointer still owns the
+    // gesture (autoscroll delivers ScrollNotifications during edge hold).
+    if (_dragGlobal != null) return;
     if (!_ownsChromeForCurrentSelection) {
       _contextMenuController.remove();
       return;
@@ -1651,10 +1756,17 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
           if (!controller.hitsSelectableContent(d.globalPosition)) {
             return;
           }
+          // The recognizer joins the arena while a range is live (so chrome
+          // taps can dismiss it), so the host gate has to be re-checked here
+          // or a long press on a link would re-anchor the active selection.
+          if (widget.canStartSelectionAt?.call(d.globalPosition) == false) {
+            return;
+          }
           _focusNode.requestFocus();
           hideToolbar();
           _dragIsHandle = false;
           _autoscrollSession.reset();
+          _autoscrollTarget = null;
           // Android shows handles on press-end; other platforms on start.
           _deferHandleShow = defaultTargetPlatform == TargetPlatform.android;
           // Match TextField long-press: Android vibrate (LONG_PRESS) via
@@ -1663,7 +1775,10 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
           Feedback.forLongPress(context);
           // Arm drag before beginSelection so overlay sync is pointer-sync.
           _dragGlobal = d.globalPosition;
-          _beginSelection(d.globalPosition, 2);
+          if (!_beginSelection(d.globalPosition, 2)) {
+            _dragGlobal = null;
+            return;
+          }
           // Magnifier still tracks during the press even when handles wait.
           _selectionOverlay?.showMagnifier(
             _magnifierInfo(d.globalPosition, isStart: false),

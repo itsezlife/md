@@ -18,6 +18,35 @@
   to the table viewport. `MarkdownHorizontalPanStore` is the remount contract
   (`MarkdownSelectionController` implements it).
 
+### Breaking vs 0.2.0
+
+Source-breaking only for hosts that implement the render / selection
+extension points or reach into a default block painter's fields. Ordinary
+`MarkdownWidget` / `MarkdownSelectionScope` users are unaffected.
+
+- **REMOVED**: `BlockPainter$Quote.painter` and `BlockPainter$Alert.bodyPainter`.
+  Both painters now stack nested children, so a single body `TextPainter` no
+  longer exists. Read `renderedText` / `fragments` (from
+  `MultiPainterSelectable`) instead.
+- **CHANGED**: `BlockPainter$Quote` and `BlockPainter$Alert` mix in
+  `MultiPainterSelectable` instead of `SelectableTextBlock`. Subclasses that
+  overrode `selectionPainter` / `selectionOrigin` must move to `fragments`.
+- **CHANGED**: `SelectableBlockPainter` gained `positionAndAffinityForLocal`,
+  `caretRectFor`, `hitsRenderedTextAt` and
+  `selectionHighlightAboveCachedContent`. Custom painters built on the
+  `SelectableTextBlock` / `MultiPainterSelectable` mixins inherit working
+  implementations; painters that `implements SelectableBlockPainter` directly
+  must add all four.
+- **CHANGED**: `MarkdownSelectionSurface` gained `hitForGlobal`,
+  `hitsSelectableGlyphs`, `isLinkAtGlobal`, `caretRectFor`,
+  `localBoxesForRange`, `hasSelectionHandleLeaders` and
+  `clearSelectionHandleLayersIfLinked`. Custom surfaces must implement them.
+- **CHANGED**: `MarkdownThemeData.copyWith` returns `MarkdownThemeData` instead
+  of `ThemeExtension<MarkdownThemeData>` (callers gain, overriders must narrow).
+- **CHANGED**: `MarkdownRenderObject.updateSelection` takes an optional
+  `markdown:`. `@meta.internal`, but `MarkdownWidget` subclasses that call it
+  must now invoke it **before** `update` (see the registry fix below).
+
 ### Quote / alert nested fenced code
 - **FIXED**: Fenced code (` ```lang ` / `~~~`) inside a blockquote or GitHub
   alert is re-parsed as nested `MD$Code` in `MD$Quote.blocks` /
@@ -28,6 +57,9 @@
   when present.
 - **FIXED**: Prose nested inside a quote (paragraphs/lists/headings beside a
   fence) uses `quoteStyle` again; code/table chrome keeps the document theme.
+- **FIXED**: Nested children route through `MarkdownThemeData.builder` like
+  top-level blocks. A host that replaces the code painter (a fence with a copy
+  button, say) was silently getting the default one inside `> …`.
 
 ### Glyph-tight hit testing
 - **CHANGED**: Hover I-beam and link hit-testing use rendered **line/glyph
@@ -42,11 +74,18 @@
 - **ADDED**: `SelectableBlockPainter.hitsRenderedTextAt`,
   `MarkdownSelectionSurface.hitsSelectableGlyphs`, and
   `MarkdownSelectionController.hitsSelectableGlyphs`.
+- **CHANGED**: Glyph boxes are cached per `TextPainter` layout. They are read on
+  every hover event (I-beam / link cursor); recomputing
+  `getBoxesForSelection` over a whole block allocated one box per run per line
+  on every mouse move (thousands of rects over a long fenced code block).
 
 ### Selection host gates
 - **ADDED**: `MarkdownSelectionScope.canStartSelectionAt` — optional host gate
   so enclosing UIs can refuse selection starts on chrome (links, code headers)
-  without the scope claiming the pointer.
+  without the scope claiming the pointer. A refusal also un-arms the drag: the
+  recognizers still join the arena while a range is live (so a chrome tap can
+  dismiss it), and without this a long press / drag on refused chrome kept
+  extending the active selection from that point.
 - **ADDED**: `MarkdownSelectionScope.enableTouchGestures` — when false, touch /
   stylus / trackpad selection recognizers stay off; mouse multi-click, handles,
   toolbar, and keyboard remain. Focus loss also does not clear the range (host
@@ -64,6 +103,12 @@
   that reference that scope’s own `LayerLink`s, so chat dual mounts keep
   handles after non-collapsed range commits (including repeated handle-drag
   settles).
+- **FIXED**: A scope that loses `ownsSelectionChrome` for the live selection
+  document now removes its own context-menu overlay (and does the same when
+  handles are disabled for that reason). Previously only handles were cleared,
+  so a prior bubble’s adaptive toolbar could linger after selection moved to a
+  sibling scope. `toolbarWanted` is left alone so the owning scope can still
+  restore on settle.
 - **ADDED**: `MarkdownSelectionSurface.hasSelectionHandleLeaders`,
   `clearSelectionHandleLayersIfLinked`, and
   `MarkdownSelectionScopeState.selectionHandleLeadersAttached` for observing
@@ -102,6 +147,25 @@
   when the controller is wired while already attached, so a mounted selectable
   surface is never missing from the registry. Prefer explicit app registration
   for unmounted docs and unique reading-order `order` values.
+- **FIXED**: Recycling a `MarkdownWidget` element onto a different `documentId`
+  (a virtualized chat list reusing a slot) overwrote the **outgoing** document's
+  registry model with the incoming body. `MarkdownWidget` now rewires the
+  selection registry before pushing the new model, and
+  `MarkdownRenderObject.updateSelection` takes the incoming `markdown:` so the
+  heal lands on the right id.
+- **FIXED**: `putDocument` without an explicit `order` appended at `_docs.length`
+  which sorted **ahead** of sparse explicit orders (chat hosts key `order` on
+  the message id), so a healed body jumped to the front of the conversation and
+  reversed extracted text. It now sorts after every registered document.
+- **FIXED**: Documents sharing an `order` could swap places on any re-sort
+  (`List.sort` is not stable), silently reversing extracted text. Ties now break
+  on registration sequence.
+- **FIXED**: `MarkdownSelectionScope.onSelectionChanged` fired synchronously
+  from inside build / layout — a streaming `putDocument` reconciling the range
+  away (from `MarkdownWidget.updateRenderObject`) or a deferred
+  `removeDocument` flushing from `RenderObject.detach` threw
+  "setState() called during build" in any host that rebuilds from the callback.
+  Delivery is now coalesced to the end of the frame in those phases.
 
 ### Selection chrome (SelectionArea parity)
 - **ADDED**: Read-only selection chrome on the controller /
@@ -135,6 +199,35 @@
     (`selectAll`, `selection = ...`) continue to present the adaptive toolbar
     and handles with action items.
 
+### Autoscroll is scroll-protocol agnostic
+- **ADDED**: `MarkdownAutoscrollTarget` — the scroll surface autoscroll drives,
+  behind three members (`viewport`, `canScroll`, `applyScrollDelta`). Deltas are
+  **screen-space content movement** (positive moves content up), never scroll
+  offsets, so reverse axes and inverted anchors are the adapter's problem.
+- **ADDED**: `MarkdownScrollableAutoscrollTarget` — the built-in sliver adapter
+  (`ScrollableState` / `ScrollPosition`), used when no resolver is configured.
+  Handles `AxisDirection.up` / `.left` sign flipping.
+- **ADDED**: `MarkdownSelectionAutoscrollConfig.targetResolver`
+  (`MarkdownAutoscrollTargetResolver` + `MarkdownAutoscrollRequest`) so a host
+  with its own scroll implementation — an anchored chat viewport, a `RenderBox`
+  that positions children itself, a transform canvas — can be driven without a
+  `Scrollable` anywhere in the tree. Plus `MarkdownCallbackAutoscrollTarget` and
+  `MarkdownAutoscrollViewport` (global bounds + band inset) for closure hosts.
+- **CHANGED**: `applyMarkdownSelectionAutoscroll` takes an optional `target:`;
+  `context:` is now optional and only used to resolve the built-in sliver
+  target. Band, host-union gate and arming logic no longer reference
+  `ScrollPosition` at all.
+- **FIXED**: The scroll surface is resolved **once per drag** and cached. It
+  used to walk the whole element subtree twice on every autoscroll frame (to
+  find the surface's element, then the nearest `Scrollable`).
+- **ADDED**: `MarkdownSelectionAutoscrollConfig.useHostUnionGate` (default
+  `true`, the existing behaviour). Turn it off when the markdown bodies **are**
+  the scrolling content and the host builds only what is visible: such a host's
+  mounted union is barely larger than the viewport, so the gate would veto a
+  drag that should keep paging through history. The target's `canScroll` and
+  the delta it reports applying are then the only stops.
+- **ADDED**: `MarkdownSelectionAutoscrollConfig.copyWith`, `==` / `hashCode`.
+
 ### Selection engine rework
 - **ADDED**: Edge-zone autoscroll while dragging (body / handle / long-press)
   near the padded viewport — host-union hard-stop, direction arming gate,
@@ -143,6 +236,11 @@
 - **CHANGED**: Toolbar hides while expanding (body or handle drag) and may
   re-show on drag end; anchors recompute on selection change, host/ancestor
   scroll, and mounted-surface layout change.
+- **FIXED**: Scroll / geometry toolbar restore is skipped while a selection
+  drag is active (`_dragGlobal`). Autoscroll `ScrollNotification`s must not
+  re-present the adaptive toolbar mid-gesture even when `toolbarWanted` was
+  re-armed (e.g. a host restoring a clamped range via the public `selection`
+  setter).
 - **CHANGED**: Toolbar placement — both endpoints in clip use stock
   above-preferring anchors; **bottom-only** endpoint prefers below that caret;
   neither endpoint in clip (tall mid-viewport) top-pins so the below-fallback

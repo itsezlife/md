@@ -101,6 +101,17 @@ class MarkdownPainter {
     _documentId = documentId;
   }
 
+  /// Builds a block nested inside a quote / alert body.
+  ///
+  /// Routes through [MarkdownThemeData.builder] like a top-level block does —
+  /// a host that replaces the code painter (a fence with a copy button, say)
+  /// expects the same painter inside `> …` as outside it.
+  static BlockPainter _nestedBlockBuilder(
+    MD$Block block,
+    MarkdownThemeData theme,
+  ) =>
+      theme.builder?.call(block, theme) ?? _defaultBlockBuilder(block, theme);
+
   static BlockPainter _defaultBlockBuilder(
     MD$Block block,
     MarkdownThemeData theme,
@@ -121,7 +132,7 @@ class MarkdownPainter {
           theme: theme,
           children: [
             for (final child in q.blocks)
-              _defaultBlockBuilder(
+              _nestedBlockBuilder(
                 child,
                 BlockPainter$Quote.inheritFrom(theme, child),
               ),
@@ -150,7 +161,7 @@ class MarkdownPainter {
           spans: a.spans,
           theme: theme,
           children: [
-            for (final child in a.blocks) _defaultBlockBuilder(child, theme),
+            for (final child in a.blocks) _nestedBlockBuilder(child, theme),
           ],
         ),
         spacer: (s) => BlockPainter$Spacer(
@@ -369,23 +380,6 @@ class MarkdownPainter {
     return painter.isLinkAtLocal(blockLocal);
   }
 
-  /// Resolves the source block index and [MD$Block] at [local], or `null` if
-  /// the point lies outside any painted block.
-  (int, MD$Block)? blockAtLocal(Offset local) {
-    if (_needsLayout || _isEmpty || _blockPainters.isEmpty) return null;
-    if (local.dx < 0 ||
-        local.dx >= _size.width ||
-        local.dy < 0 ||
-        local.dy >= _size.height) {
-      return null;
-    }
-    final idx = _blockIndexForDy(local.dy);
-    if (idx < 0 || idx >= _blockPainters.length) return null;
-    final sourceIndex = _sourceIndices[idx];
-    if (sourceIndex < 0 || sourceIndex >= _markdown.blocks.length) return null;
-    return (sourceIndex, _markdown.blocks[sourceIndex]);
-  }
-
   /// The horizontally pannable block under [local], if any.
   HorizontallyPannableBlock? pannableBlockAt(Offset local) {
     if (_needsLayout || _isEmpty || _blockPainters.isEmpty) return null;
@@ -405,6 +399,23 @@ class MarkdownPainter {
     if (local.dy < top || local.dy >= top + painter.size.height) return null;
     if (local.dx > painter.size.width) return null;
     return painter;
+  }
+
+  /// Resolves the source block index and [MD$Block] at [local], or `null` if
+  /// the point lies outside any painted block.
+  (int, MD$Block)? blockAtLocal(Offset local) {
+    if (_needsLayout || _isEmpty || _blockPainters.isEmpty) return null;
+    if (local.dx < 0 ||
+        local.dx >= _size.width ||
+        local.dy < 0 ||
+        local.dy >= _size.height) {
+      return null;
+    }
+    final idx = _blockIndexForDy(local.dy);
+    if (idx < 0 || idx >= _blockPainters.length) return null;
+    final sourceIndex = _sourceIndices[idx];
+    if (sourceIndex < 0 || sourceIndex >= _markdown.blocks.length) return null;
+    return (sourceIndex, _markdown.blocks[sourceIndex]);
   }
 
   /// Whether the content under [local] belongs to selectable **glyph** ink
@@ -512,6 +523,7 @@ class MarkdownPainter {
   /// Queries the cached block painter directly without re-layout, shifting
   /// rects by the block's vertical offset. Returns an empty list when the
   /// block is not painted, not selectable, or if `startOffset >= endOffset`.
+  /// Pannable-block boxes are intersected with the block viewport.
   List<Rect> localBoxesForRange(
     int blockIndex,
     int startOffset,
@@ -532,8 +544,23 @@ class MarkdownPainter {
       final top = _blockOffsets[i];
       final boxes = painter.boxesForRange(start, end);
       if (boxes.isEmpty) return const <Rect>[];
+      final shift = Offset(0, top);
+      if (painter is HorizontallyPannableBlock) {
+        final viewport = Rect.fromLTWH(
+          0,
+          top,
+          painter.size.width,
+          painter.size.height,
+        );
+        final out = <Rect>[];
+        for (final rect in boxes) {
+          final clipped = rect.shift(shift).intersect(viewport);
+          if (!clipped.isEmpty) out.add(clipped);
+        }
+        return out;
+      }
       return <Rect>[
-        for (final rect in boxes) rect.shift(Offset(0, top)),
+        for (final rect in boxes) rect.shift(shift),
       ];
     }
     return const <Rect>[];
