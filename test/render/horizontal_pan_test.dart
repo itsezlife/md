@@ -141,6 +141,24 @@ void main() {
     painter.dispose();
   });
 
+  test('BlockPainter\$ScrollableTable enabled:false refuses pan', () {
+    final md = Markdown.fromString(wideTable);
+    final table = md.blocks.whereType<MD$Table>().single;
+    final painter = BlockPainter$ScrollableTable(
+      header: table.header,
+      rows: table.rows,
+      alignments: table.alignments,
+      theme: MarkdownThemeData(textStyle: const TextStyle(fontSize: 14)),
+      enabled: false,
+    );
+    final size = painter.layout(180);
+    expect(size.width, 180);
+    expect(painter.canPanHorizontally, isFalse);
+    expect(painter.applyScrollDelta(40), isFalse);
+    expect(painter.scrollOffset, 0);
+    painter.dispose();
+  });
+
   test('restoreScrollOffset reapplies pan after a fresh layout', () {
     final md = Markdown.fromString(wideTable);
     final table = md.blocks.whereType<MD$Table>().single;

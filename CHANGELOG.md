@@ -1,15 +1,15 @@
 ## Unreleased
 
 ### Horizontally pannable blocks
-- **ADDED**: Opt-in `BlockPainter$ScrollableTable` via
-  `MarkdownThemeData.builder`. Default `BlockPainter$Table` keeps historical
-  overflow layout. Optional `HorizontallyPannableBlock` capability lets the
-  render object route pan / touch fling only for painters that implement it.
-  Pan offsets persist on `MarkdownSelectionController` (`horizontalPanOffset` /
-  `setHorizontalPanOffset`) across rebuild and remount, remapped by rendered
-  content when the model changes. Pannable glyphs paint outside the document
-  `Picture` cache so pan/fling never invalidates it; selection highlights clip
-  to the block viewport.
+- **ADDED**: `BlockPainter$ScrollableTable` for wide tables that clip and pan
+  instead of overflowing. Pick it in `MarkdownThemeData.builder`; the default
+  `BlockPainter$Table` is unchanged. Pass `enabled: false` to keep the clip but
+  refuse pan. Painters that implement `HorizontallyPannableBlock` get pan and
+  touch fling from the render object. Offsets live on
+  `MarkdownSelectionController` (`horizontalPanOffset` /
+  `setHorizontalPanOffset`), survive remount, and remap by block text when the
+  model changes. Pan paints outside the glyph `Picture` cache; selection
+  highlights stay clipped to the table viewport.
 
 ## 0.2.0
 

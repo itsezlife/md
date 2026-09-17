@@ -534,23 +534,31 @@ class BlockPainter$Table
 }
 
 /// Pannable overflowing table — opt-in by selecting this painter via
-/// [MarkdownThemeData.builder], not via a theme-wide flag.
+/// [MarkdownThemeData.builder] (not a theme-wide behavior contract).
 ///
 /// Implements [HorizontallyPannableBlock] so the markdown render object can
 /// route horizontal drag / pointer scroll without requiring every
-/// [BlockPainter] to know about pan.
+/// [BlockPainter] to know about pan. Pass [enabled]: `false` to keep the
+/// clipped layout but refuse pan (e.g. per-block gate without a wrapper).
 final class BlockPainter$ScrollableTable extends BlockPainter$Table
     implements HorizontallyPannableBlock {
   /// Creates a horizontally pannable table painter.
+  ///
+  /// When [enabled] is `false`, [canPanHorizontally] is always false and pan
+  /// deltas are ignored; the table still lays out clipped to the max width.
   BlockPainter$ScrollableTable({
     required super.header,
     required super.rows,
     required super.theme,
     super.alignments,
+    this.enabled = true,
   }) : super._pannable();
 
+  /// When `false`, pan is refused while clipped layout is kept.
+  final bool enabled;
+
   @override
-  bool get canPanHorizontally => _canPanHorizontally;
+  bool get canPanHorizontally => enabled && _canPanHorizontally;
 
   @override
   double get scrollOffset => _scrollOffset;
@@ -559,8 +567,17 @@ final class BlockPainter$ScrollableTable extends BlockPainter$Table
   double get maxScrollExtent => _maxScroll;
 
   @override
-  bool applyScrollDelta(double deltaDx) => _applyScrollDelta(deltaDx);
+  bool applyScrollDelta(double deltaDx) {
+    if (!enabled) return false;
+    return _applyScrollDelta(deltaDx);
+  }
 
   @override
-  void restoreScrollOffset(double offset) => _restoreScrollOffset(offset);
+  void restoreScrollOffset(double offset) {
+    if (!enabled) {
+      _restoreScrollOffset(0);
+      return;
+    }
+    _restoreScrollOffset(offset);
+  }
 }
