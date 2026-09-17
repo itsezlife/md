@@ -14,11 +14,77 @@ import '../../theme.dart';
 import '../block_painter.dart';
 import '../span_builder.dart';
 
+/// Viewport pan for a clipped overflowing table.
+///
+/// Owned only when the painter is pannable ([BlockPainter$ScrollableTable]).
+/// [scrollOffset] `0` is the **leading** edge of the content in
+/// [textDirection]: left in LTR, right in RTL (Flutter horizontal scroll).
+final class _TablePanState {
+  double scrollOffset = 0.0;
+  double maxScroll = 0.0;
+  double contentWidth = 0.0;
+
+  bool get canPan => maxScroll > 0.0;
+
+  /// Viewport-local → content-local.
+  Offset toContent(Offset local, TextDirection direction) {
+    final shift = direction == TextDirection.rtl
+        ? maxScroll - scrollOffset
+        : scrollOffset;
+    return Offset(local.dx + shift, local.dy);
+  }
+
+  /// Content-local boxes → viewport-local.
+  List<Rect> toViewport(List<Rect> boxes, TextDirection direction) {
+    if (scrollOffset == 0.0 && direction == TextDirection.ltr) return boxes;
+    final dx = direction == TextDirection.rtl
+        ? -(maxScroll - scrollOffset)
+        : -scrollOffset;
+    if (dx == 0.0) return boxes;
+    return <Rect>[for (final box in boxes) box.shift(Offset(dx, 0))];
+  }
+
+  /// Canvas translation applied inside the clipped viewport.
+  double paintTranslationX(TextDirection direction) =>
+      direction == TextDirection.rtl
+          ? -maxScroll + scrollOffset
+          : -scrollOffset;
+
+  bool applyDelta(double deltaDx) {
+    if (!canPan || deltaDx == 0.0) return false;
+    final next = (scrollOffset + deltaDx).clamp(0.0, maxScroll);
+    if (next == scrollOffset) return false;
+    scrollOffset = next;
+    return true;
+  }
+
+  void restore(double offset) {
+    if (!canPan) {
+      scrollOffset = 0.0;
+      return;
+    }
+    scrollOffset = offset.clamp(0.0, maxScroll);
+  }
+
+  void updateExtents({
+    required double contentWidth,
+    required double viewportWidth,
+  }) {
+    this.contentWidth = contentWidth;
+    if (contentWidth > viewportWidth + 0.5) {
+      maxScroll = contentWidth - viewportWidth;
+      scrollOffset = scrollOffset.clamp(0.0, maxScroll);
+    } else {
+      maxScroll = 0.0;
+      scrollOffset = 0.0;
+    }
+  }
+}
+
 /// A class for painting a table block in markdown.
 ///
-/// Oversized column minima may exceed the layout max width (historical
-/// overflow). For a clipped + pannable table, use
-/// [BlockPainter$ScrollableTable] instead of a theme flag.
+/// Wide column minima may exceed the layout max width (historical overflow).
+/// For clip + pan, use [BlockPainter$ScrollableTable].
 class BlockPainter$Table
     with ParagraphGestureHandler, MultiPainterSelectable
     implements BlockPainter {
@@ -34,7 +100,7 @@ class BlockPainter$Table
           rows: rows,
           theme: theme,
           alignments: alignments,
-          enableHorizontalPan: false,
+          pan: null,
         );
 
   /// Pannable layout — used by [BlockPainter$ScrollableTable].
@@ -48,7 +114,7 @@ class BlockPainter$Table
           rows: rows,
           theme: theme,
           alignments: alignments,
-          enableHorizontalPan: true,
+          pan: _TablePanState(),
         );
 
   BlockPainter$Table._({
@@ -56,8 +122,8 @@ class BlockPainter$Table
     required this.rows,
     required this.theme,
     required this.alignments,
-    required bool enableHorizontalPan,
-  })  : _enableHorizontalPan = enableHorizontalPan,
+    required _TablePanState? pan,
+  })  : _pan = pan,
         columns = header.cells.length,
         _columnWidths = List<double>.filled(header.cells.length, 0.0),
         _rowHeights = List<double>.filled(rows.length + 1, 0.0),
@@ -72,8 +138,9 @@ class BlockPainter$Table
           ..color =
               theme.surfaceColor ?? const Color.fromARGB(255, 235, 235, 235);
 
-  /// When true, overflowing column minima clip to the layout width and pan.
-  final bool _enableHorizontalPan;
+  /// Non-null only for [BlockPainter$ScrollableTable]. Keeps pan geometry off
+  /// the default overflowing table.
+  final _TablePanState? _pan;
 
   /// Padding for table cells.
   static const double padding = 8.0;
@@ -121,17 +188,6 @@ class BlockPainter$Table
   Size get size => _size;
   Size _size = Size.zero;
 
-  /// Full laid-out table width (may exceed [size].width when panning).
-  double _contentWidth = 0.0;
-
-  /// Horizontal pan of content inside the viewport (`0` = left-aligned).
-  /// Public pan API lives only on [BlockPainter$ScrollableTable].
-  double _scrollOffset = 0.0;
-
-  double _maxScroll = 0.0;
-
-  bool get _canPanHorizontally => _enableHorizontalPan && _maxScroll > 0.0;
-
   List<List<TextPainter>> _cellPainters = const [];
 
   @override
@@ -145,28 +201,24 @@ class BlockPainter$Table
   /// Last span hit by the tap down event.
   TextSpan? _lastSpan;
 
-  Offset _toContent(Offset local) => Offset(local.dx + _scrollOffset, local.dy);
+  bool get _canPanHorizontally => _pan?.canPan ?? false;
 
-  /// Pans content by [deltaDx] (positive reveals content on the right).
+  double get _scrollOffset => _pan?.scrollOffset ?? 0.0;
+
+  double get _maxScroll => _pan?.maxScroll ?? 0.0;
+
+  Offset _toContent(Offset local) {
+    final pan = _pan;
+    if (pan == null) return local;
+    return pan.toContent(local, theme.textDirection);
+  }
+
+  /// Pans content by [deltaDx] (positive reveals content on the trailing side).
   /// Returns true when the offset changed.
-  bool _applyScrollDelta(double deltaDx) {
-    if (!_canPanHorizontally || deltaDx == 0.0) return false;
-    final next = (_scrollOffset + deltaDx).clamp(0.0, _maxScroll);
-    if (next == _scrollOffset) return false;
-    _scrollOffset = next;
-    return true;
-  }
+  bool _applyScrollDelta(double deltaDx) => _pan?.applyDelta(deltaDx) ?? false;
 
-  /// Restores a previously saved pan after [layout] (clamped to the new
-  /// [_maxScroll]). Used so theme / model rebuilds do not jump the viewport
-  /// back to the leading edge.
-  void _restoreScrollOffset(double offset) {
-    if (!_canPanHorizontally) {
-      _scrollOffset = 0.0;
-      return;
-    }
-    _scrollOffset = offset.clamp(0.0, _maxScroll);
-  }
+  /// Restores a previously saved pan after [layout] (clamped to the new max).
+  void _restoreScrollOffset(double offset) => _pan?.restore(offset);
 
   // Selection / hit geometry is authored in content space; map viewport-local
   // pointers in and map boxes back out so chrome tracks the clipped paint.
@@ -178,10 +230,9 @@ class BlockPainter$Table
   @override
   List<Rect> boxesForRange(int start, int end) {
     final boxes = super.boxesForRange(start, end);
-    if (_scrollOffset == 0.0) return boxes;
-    return <Rect>[
-      for (final box in boxes) box.shift(Offset(-_scrollOffset, 0)),
-    ];
+    final pan = _pan;
+    if (pan == null) return boxes;
+    return pan.toViewport(boxes, theme.textDirection);
   }
 
   @override
@@ -376,17 +427,15 @@ class BlockPainter$Table
 
     _rebuildFragments(allRows);
 
-    _contentWidth = totalWidth;
-    // Scrollable variant ([BlockPainter$ScrollableTable]): clip to [width] and
-    // pan when column minima overflow. Default table keeps historical oversized
-    // layout.
-    if (_enableHorizontalPan && totalWidth > width + 0.5) {
-      _maxScroll = totalWidth - width;
-      _scrollOffset = _scrollOffset.clamp(0.0, _maxScroll);
-      return _size = Size(width, totalHeight);
+    final pan = _pan;
+    if (pan != null) {
+      // Scrollable variant: clip to [width] and pan when column minima
+      // overflow.
+      pan.updateExtents(contentWidth: totalWidth, viewportWidth: width);
+      if (pan.canPan) {
+        return _size = Size(width, totalHeight);
+      }
     }
-    _maxScroll = 0.0;
-    _scrollOffset = 0.0;
     return _size = Size(totalWidth, totalHeight);
   }
 
@@ -425,14 +474,15 @@ class BlockPainter$Table
     // If the width is less than required do not paint anything.
     if (columns < 1) return;
 
-    final pan = _canPanHorizontally;
-    if (pan) {
+    final pan = _pan;
+    final panning = pan != null && pan.canPan;
+    if (panning) {
       canvas.save();
       canvas.clipRect(Rect.fromLTWH(0, offset, _size.width, _size.height));
-      canvas.translate(-_scrollOffset, 0);
+      canvas.translate(pan.paintTranslationX(theme.textDirection), 0);
     }
 
-    final paintWidth = pan ? _contentWidth : _size.width;
+    final paintWidth = panning ? pan.contentWidth : _size.width;
     double currentY = offset;
 
     for (int r = 0; r < _cellPainters.length; r++) {
@@ -488,7 +538,7 @@ class BlockPainter$Table
       _borderPaint,
     );
 
-    if (pan) canvas.restore();
+    if (panning) canvas.restore();
   }
 
   @override
@@ -533,19 +583,28 @@ class BlockPainter$Table
   }
 }
 
-/// Pannable overflowing table — opt-in by selecting this painter via
-/// [MarkdownThemeData.builder] (not a theme-wide behavior contract).
+/// Table that clips to the layout width and pans when columns overflow.
 ///
-/// Implements [HorizontallyPannableBlock] so the markdown render object can
-/// route horizontal drag / pointer scroll without requiring every
-/// [BlockPainter] to know about pan. Pass [enabled]: `false` to keep the
-/// clipped layout but refuse pan (e.g. per-block gate without a wrapper).
+/// Return this from [MarkdownThemeData.builder]. [BlockPainter$Table] still
+/// overflows the old way.
+///
+/// Implements [HorizontallyPannableBlock]. Touch drag and pointer scroll are
+/// wired by the render object; mouse and stylus keep selection gestures.
+///
+/// Set [enabled] to `false` to keep the clip without taking the gesture. Useful
+/// as a per-block gate. [restoreScrollOffset] still applies when disabled so
+/// layout does not write `0` into the pan store and wipe a sibling message's
+/// offset in a chat list.
+///
+/// `0` pan is the leading edge for [MarkdownThemeData.textDirection] (right
+/// side in RTL, like a horizontal [Scrollable]).
 final class BlockPainter$ScrollableTable extends BlockPainter$Table
     implements HorizontallyPannableBlock {
   /// Creates a horizontally pannable table painter.
   ///
-  /// When [enabled] is `false`, [canPanHorizontally] is always false and pan
-  /// deltas are ignored; the table still lays out clipped to the max width.
+  /// With [enabled] false, [canPanHorizontally] stays false and
+  /// [applyScrollDelta] is a no-op. Clip layout and [restoreScrollOffset] still
+  /// run.
   BlockPainter$ScrollableTable({
     required super.header,
     required super.rows,
@@ -554,7 +613,7 @@ final class BlockPainter$ScrollableTable extends BlockPainter$Table
     this.enabled = true,
   }) : super._pannable();
 
-  /// When `false`, pan is refused while clipped layout is kept.
+  /// When false, refuse new pan; clipped layout and restore stay on.
   final bool enabled;
 
   @override
@@ -574,10 +633,9 @@ final class BlockPainter$ScrollableTable extends BlockPainter$Table
 
   @override
   void restoreScrollOffset(double offset) {
-    if (!enabled) {
-      _restoreScrollOffset(0);
-      return;
-    }
+    // Always apply. Layout restores then syncs the store. Zeroing while
+    // disabled would push 0 into the controller and clear a live pan on
+    // another body that shares the store.
     _restoreScrollOffset(offset);
   }
 }

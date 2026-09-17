@@ -39,6 +39,99 @@ String _spans(List<MD$Span> spans) {
   return buffer.toString();
 }
 
+/// Remaps pan offsets from [oldBlocks] onto [newBlocks].
+///
+/// Tries, in order:
+/// 1. Same index, same [markdownBlockRenderedText].
+/// 2. Another unused old index with the same rendered text (reorder / insert).
+/// 3. Same index when both blocks are still [MD$Table], so a streaming cell or
+///    row edit keeps the pan after the text no longer matches exactly.
+///
+/// Anything left unmatched is dropped. [MarkdownSelectionController] and the
+/// painter local map both call this so they cannot disagree on policy.
+Map<int, double> remapHorizontalPanOffsets({
+  required Map<int, double> byBlock,
+  required List<MD$Block> oldBlocks,
+  required List<MD$Block> newBlocks,
+}) {
+  if (byBlock.isEmpty) return const <int, double>{};
+  final remapped = <int, double>{};
+  final usedOld = <int>{};
+
+  // Pass 1: same-index exact text (streaming append of sibling blocks).
+  for (var newIndex = 0; newIndex < newBlocks.length; newIndex++) {
+    final sameOffset = byBlock[newIndex];
+    if (sameOffset == null ||
+        newIndex >= oldBlocks.length ||
+        usedOld.contains(newIndex)) {
+      continue;
+    }
+    if (markdownBlockRenderedText(oldBlocks[newIndex]) ==
+        markdownBlockRenderedText(newBlocks[newIndex])) {
+      remapped[newIndex] = sameOffset;
+      usedOld.add(newIndex);
+    }
+  }
+
+  // Pass 2: content-anchored (table reorder / insert-before).
+  for (var newIndex = 0; newIndex < newBlocks.length; newIndex++) {
+    if (remapped.containsKey(newIndex)) continue;
+    final newText = markdownBlockRenderedText(newBlocks[newIndex]);
+    for (final MapEntry(:key, :value) in byBlock.entries) {
+      if (usedOld.contains(key) || key >= oldBlocks.length) continue;
+      if (markdownBlockRenderedText(oldBlocks[key]) != newText) continue;
+      remapped[newIndex] = value;
+      usedOld.add(key);
+      break;
+    }
+  }
+
+  // Pass 3: same-index table→table after text drifted (cell/row stream).
+  for (var newIndex = 0; newIndex < newBlocks.length; newIndex++) {
+    if (remapped.containsKey(newIndex)) continue;
+    final sameOffset = byBlock[newIndex];
+    if (sameOffset == null ||
+        newIndex >= oldBlocks.length ||
+        usedOld.contains(newIndex)) {
+      continue;
+    }
+    if (oldBlocks[newIndex] is MD$Table && newBlocks[newIndex] is MD$Table) {
+      remapped[newIndex] = sameOffset;
+      usedOld.add(newIndex);
+    }
+  }
+
+  return remapped;
+}
+
+/// Where [HorizontallyPannableBlock] pans live across remount.
+///
+/// [MarkdownSelectionController] implements this so a virtualized chat can
+/// dispose a body and bring it back without snapping tables to zero. If you
+/// only need pan and not selection chrome, pass a controller and `documentId`
+/// anyway. You do not need [MarkdownSelectionScope]. A standalone store can
+/// implement this later; painters already talk to the interface.
+abstract interface class MarkdownHorizontalPanStore {
+  /// Saved pan at [blockIndex] under [documentId], or null.
+  double? horizontalPanOffset(Object documentId, int blockIndex);
+
+  /// All pans for [documentId], or null if none. Unmodifiable when non-null.
+  Map<int, double>? horizontalPanOffsets(Object documentId);
+
+  /// Write a pan, or clear it when [offset] is ≤ 0.
+  void setHorizontalPanOffset(
+    Object documentId,
+    int blockIndex,
+    double offset,
+  );
+
+  /// Replace the whole map for [documentId]. Pass an empty map to clear.
+  void replaceHorizontalPanOffsets(
+    Object documentId,
+    Map<int, double> offsets,
+  );
+}
+
 // Flattens list items depth-first into one text run per item. Joined with `\n`
 // unconditionally (one separator between every item, matching the painter's
 // per-item fragments) so empty items still occupy their own line.
@@ -553,7 +646,8 @@ class _DocEntry {
 /// documents whose widgets are currently unmounted (e.g. scrolled out of a
 /// chat list). Mounted render objects register as [MarkdownSelectionSurface]s
 /// for hit-testing and listen for repaints.
-class MarkdownSelectionController extends ChangeNotifier {
+class MarkdownSelectionController extends ChangeNotifier
+    implements MarkdownHorizontalPanStore {
   /// Creates a controller with an optional [reconciliation] policy (defaults to
   /// [MarkdownReconciliationPolicy.contentAnchored]) and default [formatter].
   MarkdownSelectionController({
@@ -611,12 +705,12 @@ class MarkdownSelectionController extends ChangeNotifier {
   final Map<Object, MarkdownSelectionSurface> _surfaces =
       <Object, MarkdownSelectionSurface>{};
 
-  /// Horizontal pan of [HorizontallyPannableBlock]s, keyed by document id →
-  /// source block index. Lives on the controller so a virtualized chat can
-  /// dispose the render object and remount without snapping pan back to zero.
-  /// Cleared only when the document is removed or the controller is disposed —
-  /// not when the surface merely detaches. Remapped on [putDocument] model
-  /// changes via the same content-anchored policy as selection.
+  /// Horizontal pans keyed by document id then source block index.
+  ///
+  /// Lives on the controller so a virtualized chat can dispose a body and
+  /// remount without snapping tables to zero. Cleared when the document leaves
+  /// the registry ([removeDocument] / [setDocuments]); remapped on model
+  /// changes with [remapHorizontalPanOffsets]. Detach alone does not clear it.
   final Map<Object, Map<int, double>> _horizontalPanByDoc =
       <Object, Map<int, double>>{};
 
@@ -638,13 +732,24 @@ class MarkdownSelectionController extends ChangeNotifier {
     super.dispose();
   }
 
-  /// Saved horizontal pan at [blockIndex] under [documentId], or null when
-  /// none.
+  /// Saved pan at [blockIndex] under [documentId], or null.
+  @override
   double? horizontalPanOffset(Object documentId, int blockIndex) =>
       _horizontalPanByDoc[documentId]?[blockIndex];
 
-  /// Records (or clears, when [offset] ≤ 0) the horizontal pan of a pannable
-  /// block. Survives surface detach / remount.
+  /// All pans for [documentId], or null. Unmodifiable view.
+  @override
+  Map<int, double>? horizontalPanOffsets(Object documentId) {
+    final byBlock = _horizontalPanByDoc[documentId];
+    if (byBlock == null || byBlock.isEmpty) return null;
+    return Map<int, double>.unmodifiable(byBlock);
+  }
+
+  /// Write a pan, or clear it when [offset] is ≤ 0.
+  ///
+  /// Survives surface detach and remount. Does not [notifyListeners]; pan is
+  /// paint-only. Call from layout or a gesture, not to drive a rebuild.
+  @override
   void setHorizontalPanOffset(
     Object documentId,
     int blockIndex,
@@ -659,6 +764,22 @@ class MarkdownSelectionController extends ChangeNotifier {
     }
     _horizontalPanByDoc.putIfAbsent(
         documentId, () => <int, double>{})[blockIndex] = offset;
+  }
+
+  /// Replace every pan for [documentId]. Empty map clears.
+  ///
+  /// Layout uses this after a commit so orphan indices from a putDocument /
+  /// remount race do not stick around.
+  @override
+  void replaceHorizontalPanOffsets(
+    Object documentId,
+    Map<int, double> offsets,
+  ) {
+    if (offsets.isEmpty) {
+      _horizontalPanByDoc.remove(documentId);
+      return;
+    }
+    _horizontalPanByDoc[documentId] = Map<int, double>.from(offsets);
   }
 
   /// The number of registered documents. Prefer this over `documents.length`,
@@ -676,15 +797,32 @@ class MarkdownSelectionController extends ChangeNotifier {
 
   // --- registry -----------------------------------------------------------
 
-  /// Replaces the whole registry (initial/bulk load), preserving a still-valid
-  /// selection by clamping it into the new documents.
+  /// Replace the whole document registry (bulk load / chat rebuild).
+  ///
+  /// Keeps a still-valid selection by clamping into the new docs. Pan maps
+  /// follow the same rules: dropped ids are cleared, surviving ids with a new
+  /// model go through [remapHorizontalPanOffsets]. Chat hosts that only call
+  /// this (and never [putDocument]) rely on that remap after insert/reorder.
   void setDocuments(Iterable<MarkdownDocumentRef> docs) {
+    final previous = <Object, Markdown>{
+      for (final e in _docs) e.id: e.model,
+    };
+    final next = <_DocEntry>[
+      for (final (i, d) in docs.indexed) _DocEntry(d.id, d.model, d.order ?? i),
+    ];
+    final nextIds = <Object>{for (final e in next) e.id};
+
+    _horizontalPanByDoc.removeWhere((id, _) => !nextIds.contains(id));
+    for (final e in next) {
+      final oldModel = previous[e.id];
+      if (oldModel != null && !identical(oldModel, e.model)) {
+        _remapHorizontalPans(e.id, oldModel, e.model);
+      }
+    }
+
     _docs
       ..clear()
-      ..addAll(<_DocEntry>[
-        for (final (i, d) in docs.indexed)
-          _DocEntry(d.id, d.model, d.order ?? i),
-      ]);
+      ..addAll(next);
     _sort();
     _validateSelection();
     notifyListeners();
@@ -762,41 +900,15 @@ class MarkdownSelectionController extends ChangeNotifier {
   }
 
   /// Remaps stored horizontal pan offsets for [id] from [oldModel] to
-  /// [newModel] by matching [markdownBlockRenderedText] (content-anchored).
+  /// [newModel] (see [remapHorizontalPanOffsets]).
   void _remapHorizontalPans(Object id, Markdown oldModel, Markdown newModel) {
     final byBlock = _horizontalPanByDoc[id];
     if (byBlock == null || byBlock.isEmpty) return;
-
-    final remapped = <int, double>{};
-    final usedOld = <int>{};
-    final newBlocks = newModel.blocks;
-
-    for (var newIndex = 0; newIndex < newBlocks.length; newIndex++) {
-      final newText = markdownBlockRenderedText(newBlocks[newIndex]);
-
-      // Prefer same-index when content still matches.
-      final sameOffset = byBlock[newIndex];
-      if (sameOffset != null &&
-          newIndex < oldModel.blocks.length &&
-          markdownBlockRenderedText(oldModel.blocks[newIndex]) == newText &&
-          !usedOld.contains(newIndex)) {
-        remapped[newIndex] = sameOffset;
-        usedOld.add(newIndex);
-        continue;
-      }
-
-      for (final MapEntry(:key, :value) in byBlock.entries) {
-        if (usedOld.contains(key)) continue;
-        if (key >= oldModel.blocks.length) continue;
-        if (markdownBlockRenderedText(oldModel.blocks[key]) != newText) {
-          continue;
-        }
-        remapped[newIndex] = value;
-        usedOld.add(key);
-        break;
-      }
-    }
-
+    final remapped = remapHorizontalPanOffsets(
+      byBlock: byBlock,
+      oldBlocks: oldModel.blocks,
+      newBlocks: newModel.blocks,
+    );
     if (remapped.isEmpty) {
       _horizontalPanByDoc.remove(id);
     } else {

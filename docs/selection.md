@@ -175,13 +175,31 @@ Typical pattern: keep models in a list, feed them to the controller, and give ea
 
 ## Horizontal pan persistence
 
-`HorizontallyPannableBlock` pan offsets (e.g. `BlockPainter$ScrollableTable`) are
-stored on the same controller as selection: `horizontalPanOffset` /
-`setHorizontalPanOffset`, keyed by `(documentId, sourceBlockIndex)`. A painter-local
-map covers same-surface rebuilds; the controller covers remount. On `putDocument`
-model changes, pan keys are remapped with the same content-anchored rendered-text
-matching as selection. Touch drag-end may run a `ClampingScrollSimulation` fling
-(cancelled on next pointer-down or painter rebuild); pointer-scroll stays discrete.
+Pannable blocks (`BlockPainter$ScrollableTable` and anything else that
+implements `HorizontallyPannableBlock`) keep their offset in a
+`MarkdownHorizontalPanStore`. `MarkdownSelectionController` is the stock
+implementation, keyed by `(documentId, sourceBlockIndex)`.
+
+If you only need pan remount and not selection chrome, still pass a controller
+and `documentId`. You do not need `MarkdownSelectionScope`.
+
+Same-surface rebuilds use a painter-local map; remount uses the store.
+`putDocument` and `setDocuments` remap (or drop) keys with
+`remapHorizontalPanOffsets`: same-index exact text first, then content match
+for reorder/insert, then same-index when both sides are still an `MD$Table` so
+streaming cell edits keep the pan. Ids removed from `setDocuments` clear their
+maps.
+
+Only `performLayout` commits pan. Dry layout must not, or a tentative narrow
+width clamps the store before the real layout. When a table temporarily fits
+(or `ScrollableTable.enabled` is false), a zero live offset does not wipe the
+stored value.
+
+Touch drag-end may fling with `ClampingScrollSimulation` (stopped on
+pointer-down, detach, `TickerMode` off, or painter rebuild). Pointer scroll
+pans only when `|dx| >= |dy|`. Mouse and stylus keep selection TapAndPan; only
+touch arms the table `HorizontalDrag`. Leading edge follows
+`MarkdownThemeData.textDirection` (right side in RTL).
 
 ## Gotchas / known limitations
 

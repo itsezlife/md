@@ -1,6 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
+import 'package:flutter_md/src/render/markdown_painter.dart';
 import 'package:flutter_md/src/render/markdown_render_object.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -156,6 +157,10 @@ void main() {
     expect(painter.canPanHorizontally, isFalse);
     expect(painter.applyScrollDelta(40), isFalse);
     expect(painter.scrollOffset, 0);
+    // Restore still applies so layout → rememberHorizontalPan does not wipe
+    // a stored offset when a disabled painter is rebuilt (e.g. selection).
+    painter.restoreScrollOffset(55);
+    expect(painter.scrollOffset, 55);
     painter.dispose();
   });
 
@@ -536,5 +541,298 @@ $wideTable
     }
     expect(found, isTrue);
     controller.dispose();
+  });
+
+  test('setDocuments remaps pans and drops removed ids', () {
+    final a = Markdown.fromString(wideTable);
+    final withIntro = Markdown.fromString('Intro\n\n$wideTable');
+    expect(a.blocks, hasLength(1));
+    expect(withIntro.blocks.length, greaterThanOrEqualTo(2));
+    expect(withIntro.blocks.last, isA<MD$Table>());
+
+    final direct = remapHorizontalPanOffsets(
+      byBlock: {0: 40},
+      oldBlocks: a.blocks,
+      newBlocks: withIntro.blocks,
+    );
+    expect(direct, {withIntro.blocks.length - 1: 40});
+
+    final controller = MarkdownSelectionController()
+      ..setDocuments([
+        MarkdownDocumentRef(id: 'keep', model: a, order: 0),
+        MarkdownDocumentRef(id: 'gone', model: a, order: 1),
+      ])
+      ..setHorizontalPanOffset('keep', 0, 40)
+      ..setHorizontalPanOffset('gone', 0, 25);
+
+    expect(controller.horizontalPanOffset('keep', 0), 40);
+
+    controller.setDocuments([
+      MarkdownDocumentRef(id: 'keep', model: withIntro, order: 0),
+    ]);
+
+    expect(controller.horizontalPanOffsets('gone'), isNull);
+    expect(controller.horizontalPanOffset('keep', 0), isNull);
+    expect(
+      controller.horizontalPanOffset('keep', withIntro.blocks.length - 1),
+      40,
+    );
+    controller.dispose();
+  });
+
+  test('streaming table edit keeps same-index pan', () {
+    final before = Markdown.fromString(wideTable);
+    final after = Markdown.fromString('''
+| Path |
+| --- |
+| packages/flutter/lib/src/material/scrollbar_theme.dart |
+| packages/flutter/lib/src/material/animated_icons/animated_icons.dart |
+| packages/flutter/lib/src/material/theme.dart |
+''');
+    expect(before.blocks.single, isA<MD$Table>());
+    expect(after.blocks.single, isA<MD$Table>());
+    expect(
+      markdownBlockRenderedText(before.blocks.single),
+      isNot(markdownBlockRenderedText(after.blocks.single)),
+    );
+
+    final remapped = remapHorizontalPanOffsets(
+      byBlock: {0: 70},
+      oldBlocks: before.blocks,
+      newBlocks: after.blocks,
+    );
+    expect(remapped, {0: 70});
+  });
+
+  test('fits-width layout does not wipe controller pan', () {
+    final md = Markdown.fromString(wideTable);
+    final table = md.blocks.whereType<MD$Table>().single;
+    final theme = MarkdownThemeData(textStyle: const TextStyle(fontSize: 14));
+    final painter = BlockPainter$ScrollableTable(
+      header: table.header,
+      rows: table.rows,
+      alignments: table.alignments,
+      theme: theme,
+    );
+    painter.layout(180);
+    expect(painter.applyScrollDelta(60), isTrue);
+    final saved = painter.scrollOffset;
+    expect(saved, greaterThan(0));
+
+    final controller = MarkdownSelectionController()..putDocument('d', md);
+    final mp = MarkdownPainter(markdown: md, theme: scrollableTheme())
+      ..bindHorizontalPanStore(controller, 'd');
+    // Seed store as if the user had panned, then layout at a width that fits.
+    controller.setHorizontalPanOffset('d', 0, saved);
+    mp.layout(maxWidth: 4000, commitHorizontalPan: true);
+    expect(controller.horizontalPanOffset('d', 0), saved);
+
+    // Narrow again — remount restore should still see the offset.
+    mp.layout(maxWidth: 180, commitHorizontalPan: true);
+    final live = mp.pannablePainterAt(0)!;
+    expect(live.scrollOffset, saved);
+    controller.dispose();
+    mp.dispose();
+    painter.dispose();
+  });
+
+  testWidgets('dry layout does not clamp controller pan', (tester) async {
+    final md = Markdown.fromString(wideTable);
+    final controller = MarkdownSelectionController()
+      ..putDocument('d', md)
+      ..setHorizontalPanOffset('d', 0, 55);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MarkdownSelectionScope(
+            controller: controller,
+            child: SizedBox(
+              width: 180,
+              child: MarkdownWidget(
+                markdown: md,
+                documentId: 'd',
+                controller: controller,
+                theme: scrollableTheme(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final ro = renderObject(tester);
+    // Poisonous tentative width — must not write 0 into the store.
+    ro.computeDryLayout(const BoxConstraints(maxWidth: 4000));
+    expect(controller.horizontalPanOffset('d', 0), 55);
+
+    ro.layout(const BoxConstraints(maxWidth: 180));
+    expect(
+      controller.horizontalPanOffset('d', 0),
+      greaterThan(0),
+    );
+    controller.dispose();
+  });
+
+  testWidgets('stylus down does not arm table HorizontalDrag', (tester) async {
+    final md = Markdown.fromString(wideTable);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 180,
+            child: MarkdownWidget(
+              markdown: md,
+              theme: scrollableTheme(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pan = livePan(tester)!;
+    final box = tester.getRect(find.byType(MarkdownWidget));
+    final start = Offset(box.center.dx + 40, box.center.dy);
+    final end = Offset(box.center.dx - 80, box.center.dy);
+
+    final gesture = await tester.startGesture(
+      start,
+      kind: PointerDeviceKind.stylus,
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+    await gesture.moveTo(end);
+    await tester.pump(const Duration(milliseconds: 16));
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    // Stylus must not drive HorizontalDrag pan (selection keeps the pointer).
+    expect(pan.scrollOffset, 0);
+  });
+
+  testWidgets('pointer scroll pans only when dx dominates', (tester) async {
+    final md = Markdown.fromString(wideTable);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 180,
+            child: MarkdownWidget(
+              markdown: md,
+              theme: scrollableTheme(),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pan = livePan(tester)!;
+    final box = tester.getRect(find.byType(MarkdownWidget));
+    final center = box.center;
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: center,
+        scrollDelta: const Offset(0, 40),
+      ),
+    );
+    await tester.pump();
+    expect(pan.scrollOffset, 0);
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: center,
+        scrollDelta: const Offset(40, 10),
+      ),
+    );
+    await tester.pump();
+    expect(pan.scrollOffset, greaterThan(0));
+  });
+
+  test('RTL pan: offset 0 maps viewport left to content trailing edge', () {
+    final md = Markdown.fromString(wideTable);
+    final table = md.blocks.whereType<MD$Table>().single;
+    final painter = BlockPainter$ScrollableTable(
+      header: table.header,
+      rows: table.rows,
+      alignments: table.alignments,
+      theme: MarkdownThemeData(
+        textStyle: const TextStyle(fontSize: 14),
+        textDirection: TextDirection.rtl,
+      ),
+    )..layout(180);
+    expect(painter.canPanHorizontally, isTrue);
+    expect(painter.scrollOffset, 0);
+
+    // Viewport x=0 should hit near the right edge of the content.
+    final atLeading = painter.offsetForLocalPosition(Offset.zero);
+    painter.applyScrollDelta(painter.maxScrollExtent);
+    final atTrailing = painter.offsetForLocalPosition(Offset.zero);
+    expect(atLeading, greaterThan(atTrailing));
+    painter.dispose();
+  });
+
+  testWidgets('TickerMode.off stops ballistic fling', (tester) async {
+    final md = Markdown.fromString(wideTable);
+    late final ValueNotifier<bool> tickerOn;
+    tickerOn = ValueNotifier<bool>(true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AnimatedBuilder(
+            animation: tickerOn,
+            builder: (context, _) => TickerMode(
+              enabled: tickerOn.value,
+              child: SizedBox(
+                width: 180,
+                child: MarkdownWidget(
+                  markdown: md,
+                  theme: scrollableTheme(),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final pan = livePan(tester)!;
+    final box = tester.getRect(find.byType(MarkdownWidget));
+    final start = Offset(box.center.dx + 40, box.center.dy);
+    final end = Offset(box.center.dx - 100, box.center.dy);
+
+    final gesture = await tester.startGesture(
+      start,
+      kind: PointerDeviceKind.touch,
+    );
+    await tester.pump(const Duration(milliseconds: 16));
+    await gesture.moveTo(end);
+    await tester.pump(const Duration(milliseconds: 16));
+    await gesture.up();
+    await tester.pump(const Duration(milliseconds: 16));
+
+    final midFling = pan.scrollOffset;
+    expect(midFling, greaterThan(0));
+
+    tickerOn.value = false;
+    await tester.pump();
+    final frozen = pan.scrollOffset;
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(pan.scrollOffset, frozen);
+
+    tickerOn.dispose();
+  });
+
+  test('MarkdownSelectionController implements MarkdownHorizontalPanStore', () {
+    final store = MarkdownSelectionController() as MarkdownHorizontalPanStore;
+    store.setHorizontalPanOffset('d', 0, 12);
+    expect(store.horizontalPanOffset('d', 0), 12);
+    store.replaceHorizontalPanOffsets('d', {1: 3});
+    expect(store.horizontalPanOffsets('d'), {1: 3});
+    (store as MarkdownSelectionController).dispose();
   });
 }

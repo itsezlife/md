@@ -87,7 +87,9 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
   `ListView` disposal (scrolled-off chat messages). A block's on-screen offset
   space **must** match `markdownBlockRenderedText(block)` (lists join items with
   `\n`, tables join cells with `\t` / rows with `\n`) — hit-testing, highlight,
-  and copied text all depend on that agreement.
+  and copied text all depend on that agreement. **Horizontal pan remount state
+  uses `MarkdownHorizontalPanStore`** (implemented by the selection controller);
+  dry layout must not commit it; leading edge follows `textDirection`.
 - **The span offset invariant:** concatenating a block's `MD$Span.text` reproduces
   its rendered text; `MD$Span.start/end` index that visible text (see caveats for
   escapes/math/links in [`docs/parser.md`](docs/parser.md)). Selection relies on it.

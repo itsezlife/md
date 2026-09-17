@@ -52,8 +52,9 @@ class MarkdownRenderObject extends RenderBox
   LayerLink? _endHandleLink;
   Offset? _endHandleLocal;
 
-  /// Touch / stylus pan over a [HorizontallyPannableBlock] (mouse uses scroll
-  /// signals so selection TapAndPan is not stolen).
+  /// Touch pan over a [HorizontallyPannableBlock]. Mouse / stylus / trackpad
+  /// keep selection TapAndPan (or pointer scroll); a competing HorizontalDrag
+  /// on those kinds would steal cell selection.
   HorizontalDragGestureRecognizer? _horizontalPan;
   HorizontallyPannableBlock? _panningBlock;
 
@@ -62,6 +63,24 @@ class MarkdownRenderObject extends RenderBox
   Simulation? _ballisticSimulation;
   HorizontallyPannableBlock? _ballisticBlock;
   Duration _ballisticStart = Duration.zero;
+
+  /// Mirrors [TickerMode.valuesOf(context).enabled] from the [MarkdownWidget]
+  /// element. Offstage / disabled routes mute the fling ticker without a
+  /// State [TickerProvider].
+  bool _tickerModeEnabled = true;
+
+  /// Syncs ambient [TickerMode] from the widget. Stops an in-flight fling when
+  /// the mode turns off.
+  @meta.internal
+  void setTickerModeEnabled(bool enabled) {
+    if (_tickerModeEnabled == enabled) return;
+    _tickerModeEnabled = enabled;
+    _ballisticTicker?.muted = !_tickerModeEnabled || !attached;
+    if (!enabled) {
+      _stopBallistic();
+      _ballisticTicker?.stop();
+    }
+  }
 
   void _onSelectionChange() {
     if (!_disposed) markNeedsPaint();
@@ -253,9 +272,15 @@ class MarkdownRenderObject extends RenderBox
   // delegates to `_painter.layout(...)` which populates the painter's cached
   // layout as a side effect (not a "pure" dry layout). [performLayout] re-runs
   // the same layout, so the cached state is always finalized before [paint].
+  // Horizontal pan is not committed here — a tentative maxWidth must not clamp
+  // the durable remount store.
   @override
-  Size computeDryLayout(BoxConstraints constraints) =>
-      constraints.constrain(_painter.layout(maxWidth: constraints.maxWidth));
+  Size computeDryLayout(BoxConstraints constraints) => constraints.constrain(
+        _painter.layout(
+          maxWidth: constraints.maxWidth,
+          commitHorizontalPan: false,
+        ),
+      );
 
   @override
   void performLayout() {
@@ -297,7 +322,12 @@ class MarkdownRenderObject extends RenderBox
       }
     }
     if (event is PointerScrollEvent) {
-      _panHorizontally(event.localPosition, event.scrollDelta.dx);
+      // Nested in a vertical list: only claim when horizontal wins the delta.
+      final dx = event.scrollDelta.dx;
+      final dy = event.scrollDelta.dy;
+      if (dx != 0.0 && dx.abs() >= dy.abs()) {
+        _panHorizontally(event.localPosition, dx);
+      }
     } else if (event is PointerDownEvent) {
       _maybeArmHorizontalPan(event);
     }
@@ -305,15 +335,10 @@ class MarkdownRenderObject extends RenderBox
   }
 
   void _maybeArmHorizontalPan(PointerDownEvent event) {
-    // Mouse selection uses TapAndPan on the scope; competing HorizontalDrag
-    // would steal cell selection. Touch / stylus get pan; mouse and trackpad
-    // reach the same content via [PointerScrollEvent].
-    final kind = event.kind;
-    if (kind != PointerDeviceKind.touch &&
-        kind != PointerDeviceKind.stylus &&
-        kind != PointerDeviceKind.invertedStylus) {
-      return;
-    }
+    // Mouse / stylus / trackpad use TapAndPan on the selection scope (or
+    // PointerScrollEvent for wheel/trackpad). Touch is the only kind that
+    // arms HorizontalDrag here — otherwise stylus selection fights pan.
+    if (event.kind != PointerDeviceKind.touch) return;
     // A new pointer cancels any in-flight ballistic fling.
     _stopBallistic();
     final block = _painter.pannableBlockAt(event.localPosition);
@@ -366,12 +391,20 @@ class MarkdownRenderObject extends RenderBox
       position: block.scrollOffset,
       velocity: velocity,
     );
-    _ballisticTicker ??= Ticker(_onBallisticTick);
+    // Raw [Ticker] (no Element [TickerProvider]): muted from [TickerMode] via
+    // [setTickerModeEnabled], and when detached.
+    _ballisticTicker ??= Ticker(_onBallisticTick, debugLabel: 'md.pan.fling');
+    _ballisticTicker!.muted = !_tickerModeEnabled || !attached;
     _ballisticStart = Duration.zero;
     _ballisticTicker!.start();
   }
 
   void _onBallisticTick(Duration elapsed) {
+    if (!attached || _disposed || !_tickerModeEnabled) {
+      _stopBallistic();
+      _ballisticTicker?.stop();
+      return;
+    }
     if (_ballisticStart == Duration.zero) {
       _ballisticStart = elapsed;
     }
@@ -407,6 +440,7 @@ class MarkdownRenderObject extends RenderBox
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
+    _ballisticTicker?.muted = !_tickerModeEnabled || !attached;
     PaintingBinding.instance.systemFonts.addListener(_handleSystemFontsChange);
     _painter.bindHorizontalPanStore(_controller, _documentId);
     _controller?.attachSurface(this);
@@ -435,6 +469,8 @@ class MarkdownRenderObject extends RenderBox
   @override
   @protected
   void detach() {
+    _stopBallistic();
+    _ballisticTicker?.muted = true;
     PaintingBinding.instance.systemFonts
         .removeListener(_handleSystemFontsChange);
     _controller?.detachSurface(this);

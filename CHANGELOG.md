@@ -4,12 +4,19 @@
 - **ADDED**: `BlockPainter$ScrollableTable` for wide tables that clip and pan
   instead of overflowing. Pick it in `MarkdownThemeData.builder`; the default
   `BlockPainter$Table` is unchanged. Pass `enabled: false` to keep the clip but
-  refuse pan. Painters that implement `HorizontallyPannableBlock` get pan and
-  touch fling from the render object. Offsets live on
-  `MarkdownSelectionController` (`horizontalPanOffset` /
-  `setHorizontalPanOffset`), survive remount, and remap by block text when the
-  model changes. Pan paints outside the glyph `Picture` cache; selection
-  highlights stay clipped to the table viewport.
+  refuse new pan; `restoreScrollOffset` still applies so a disabled rebuild does
+  not wipe the controller pan store. Painters that implement
+  `HorizontallyPannableBlock` get touch pan and fling from the render object
+  (mouse/stylus keep selection; wheel/trackpad pan when `|dx| >= |dy|`). Offsets
+  live on `MarkdownSelectionController` (`horizontalPanOffset` /
+  `setHorizontalPanOffset` / `replaceHorizontalPanOffsets`), survive remount,
+  and remap on `putDocument` / `setDocuments` (same-index text match, same-index
+  table kind across streaming edits, else content-anchored). Dry layout does not
+  commit pan. A temporary fit-width layout does not clear a stored offset. Leading
+  edge follows `textDirection` (RTL from the right). Fling respects `TickerMode`.
+  Pan paints outside the glyph `Picture` cache; selection highlights stay clipped
+  to the table viewport. `MarkdownHorizontalPanStore` is the remount contract
+  (`MarkdownSelectionController` implements it).
 
 ## 0.2.0
 
