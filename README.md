@@ -1,7 +1,11 @@
 # flutter_md - Markdown Parser and Renderer for Flutter
 
-[![Checkout](https://github.com/DoctorinaAI/md/actions/workflows/checkout.yml/badge.svg)](https://github.com/DoctorinaAI/md/actions/workflows/checkout.yml)
-[![Pub Package](https://img.shields.io/pub/v/flutter_md.svg)](https://pub.dev/packages/flutter_md)
+> **Fork status.** This is `itsezlife/md`, a fork of
+> [`DoctorinaAI/md`](https://github.com/DoctorinaAI/md) that **no longer tracks
+> upstream**: upstream changes are cherry-picked by hand when wanted, never
+> merged. The package name stays `flutter_md`. It is not published to pub.dev;
+> consume it by git ref (see [Installation](#installation)).
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Dart](https://img.shields.io/badge/Dart-%230175C2.svg?style=flat&logo=dart&logoColor=white)](https://dart.dev)
 [![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=flat&logo=Flutter&logoColor=white)](https://flutter.dev)
@@ -192,7 +196,10 @@ Add this to your package's `pubspec.yaml` file:
 
 ```yaml
 dependencies:
-  flutter_md: ^x.x.x # Replace with the latest version
+  flutter_md:
+    git:
+      url: https://github.com/itsezlife/md.git
+      ref: v0.3.0 # a release tag; the fork is not published to pub.dev
 ```
 
 Then run:
@@ -649,7 +656,7 @@ For major changes, please open an issue first to discuss what you would like to 
 ### Development Setup
 
 ```bash
-git clone https://github.com/DoctorinaAI/md.git md
+git clone https://github.com/itsezlife/md.git md
 cd md
 flutter pub get
 flutter test
@@ -668,10 +675,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🔗 Links
 
-- [Documentation](https://pub.dev/documentation/flutter_md/latest/)
-- [Example App](https://github.com/DoctorinaAI/md/tree/main/example)
-- [Issue Tracker](https://github.com/DoctorinaAI/md/issues)
-- [Pub.dev Package](https://pub.dev/packages/flutter_md)
+- [Example App](https://github.com/itsezlife/md/tree/master/example)
+- [Issue Tracker](https://github.com/itsezlife/md/issues)
+- [Upstream (`DoctorinaAI/md`)](https://github.com/DoctorinaAI/md)
 
 ## 💡 Why Choose md?
 

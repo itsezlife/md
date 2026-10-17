@@ -1,4 +1,42 @@
-## Unreleased
+## 0.3.0
+
+Before this release the package was `0.2.0` from upstream: selection worked
+across blocks, but a chat host had to build its own chrome (handles, toolbar,
+autoscroll) around it, tables overflowed instead of panning, fenced code inside
+a quote collapsed into inline monospace, and the scroll surface was assumed to
+be a `Scrollable`. After it, the selection chrome, autoscroll, hit testing and
+multi-body registry are the engine's own and run against any scroll protocol,
+wide tables pan, and nested fences survive. The sections below say what each
+change does; **Breaking vs 0.2.0** says what an existing consumer must touch.
+Hosts that only use `MarkdownWidget` / `MarkdownSelectionScope` are unaffected.
+
+### Fork status
+
+This repository is `itsezlife/md`, a fork of `DoctorinaAI/md`. The package name
+stays `flutter_md`, but the fork **no longer tracks upstream**: nothing is
+merged from `DoctorinaAI/md` any more. The last upstream change taken is
+`fix(theme): resolve a monospace family the platform actually knows (#29)`
+(`12e068f`, cherry-picked; see *Monospace font resolution*). A later upstream
+commit is cherry-picked by hand only when it is wanted, and it arrives as a new
+commit here, never as a merge. The fork is not published to pub.dev: depend on
+it by git ref, and pin the release tag (`v0.3.0`) so a lockfile is reproducible:
+
+```yaml
+dependencies:
+  flutter_md:
+    git:
+      url: https://github.com/itsezlife/md.git
+      ref: v0.3.0
+```
+
+`master` holds `feat/selection-chrome` (which already contains
+`feat/horizontally-pannable-blocks`) in full. Two branches stay out on purpose.
+`fix/drop-toolbar-on-chrome-ownership-loss` is not merged: both of its fixes
+(drop the toolbar overlay when chrome ownership is lost; skip toolbar geometry
+restore while a drag is active) already live in `selection_scope.dart` on this
+line, and the branch also carries commits that split `clampMarkdownToLines`
+and the monospace work out of an upstream PR, so merging it would delete that
+API. `prototype/spoiler-particles` is a throwaway experiment and never merges.
 
 ### Horizontally pannable blocks
 - **ADDED**: `BlockPainter$ScrollableTable` for wide tables that clip and pan

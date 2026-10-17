@@ -6,8 +6,8 @@ first, every time. Deep detail lives in [`docs/`](docs/) — linked per section.
 `flutter_md` is a Flutter Markdown package: a hand-rolled **parser** → an
 immutable **node model** → a **canvas render layer** (one `RenderBox`, no
 widget-per-block) → cross-block/cross-widget **text selection**. Repo:
-`DoctorinaAI/md`, package `flutter_md`, currently `0.2.0`, branch
-`feat/text-selection`.
+`itsezlife/md` (a fork of `DoctorinaAI/md` that no longer tracks upstream),
+package `flutter_md`, currently `0.3.0`, branch `master`, consumed by git ref.
 
 ## Commands (these are the CI gates — run before you claim done)
 
