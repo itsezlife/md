@@ -14,7 +14,7 @@
 // Tiers:
 //   layout_large   full layout of a large doc         (performLayout cost)
 //   paint_miss     fresh painter: layout + first paint (records new Picture)
-//   paint_hit      same painter+size: paint again      (cache hit → drawPicture)
+//   paint_hit      same painter+size: paint again (cache hit → drawPicture)
 //   stream_append  update(newModel) + relayout         (LLM streaming rebuild)
 //   scroll_frame   wall time per pump during a drag     (widget-level)
 //   selection_drag highlight repaint over cached Picture (must NOT rebuild it)
@@ -200,7 +200,8 @@ void main() {
       final delta = base == null ? '-' : _delta(base, e.value);
       // ignore: avoid_print
       print('${e.key.padRight(16)}${e.value.toStringAsFixed(2).padLeft(12)}'
-          '${(base?.toStringAsFixed(2) ?? '-').padLeft(12)}${delta.padLeft(10)}');
+          '${(base?.toStringAsFixed(2) ?? '-').padLeft(12)}'
+          '${delta.padLeft(10)}');
     }
     if (_save) {
       _saveBaseline(_results);
