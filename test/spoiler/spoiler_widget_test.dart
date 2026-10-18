@@ -235,6 +235,33 @@ void main() {
       expect(taps, ['https://x.example']);
     });
 
+    testWidgets('a mention inside a hidden spoiler reveals, not activates',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      final mentions = <String>[];
+      await tester.pumpWidget(
+        _body(
+          [('a', 'a ||hi [@ann](mention:42)|| b')],
+          spoilers,
+          theme: MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            onMentionTap: (scheme, id, name) => mentions.add('$id/$name'),
+          ),
+        ),
+      );
+      // The mention ends the spoiler: its right edge is on the mention.
+      final point = _spoilerCenter(tester, 'a') +
+          Offset(_painterOf(tester, 'a').spoilerRects.first.width / 2 - 10, 0);
+
+      await tester.tapAt(point);
+      await tester.pumpAndSettle();
+      expect(mentions, isEmpty);
+
+      await tester.tapAt(point);
+      expect(mentions, ['42/@ann']);
+    });
+
     testWidgets('hide brings the spoiler back', (tester) async {
       final spoilers = MarkdownSpoilerController();
       addTearDown(spoilers.dispose);
