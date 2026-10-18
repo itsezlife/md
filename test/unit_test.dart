@@ -29,6 +29,7 @@ import 'selection/selection_nested_blocks_test.dart'
     as selection_nested_blocks_test;
 import 'selection/selection_registry_test.dart' as selection_registry_test;
 import 'selection/selection_test.dart' as selection_test;
+import 'selection/source_formatter_test.dart' as source_formatter_test;
 import 'selection/selection_widget_test.dart' as selection_widget_test;
 import 'spoiler/spoiler_controller_test.dart' as spoiler_controller_test;
 import 'spoiler/spoiler_golden_test.dart' as spoiler_golden_test;
@@ -59,6 +60,7 @@ void main() => group('Unit', () {
       inline_embed_test.main();
       selection_test.main();
       markup_formatter_test.main();
+      source_formatter_test.main();
       selection_widget_test.main();
       selection_keyboard_test.main();
       selection_handles_test.main();

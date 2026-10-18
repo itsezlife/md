@@ -128,9 +128,10 @@ void main() {
       expect(markdownBlockRenderedText(quotedCode), 'print(1);');
     });
 
-    test('cross-document extraction with default formatter', () {
+    test('cross-document extraction with the plain formatter', () {
       final c = two()..selection = full;
-      expect(c.getText(), 'Alpha one\nAlpha two\n\nBravo one\nBravo two');
+      expect(c.getText(MarkdownSelectionFormatter.plain),
+          'Alpha one\nAlpha two\n\nBravo one\nBravo two');
       final content = c.selectedContent();
       expect(content.documents.length, 2);
       expect(content.documents.first.blocks.map((b) => b.text).toList(),
@@ -209,7 +210,8 @@ void main() {
 
     test('selectAll and clear', () {
       final c = two()..selectAll();
-      expect(c.getText(), 'Alpha one\nAlpha two\n\nBravo one\nBravo two');
+      expect(c.getText(MarkdownSelectionFormatter.plain),
+          'Alpha one\nAlpha two\n\nBravo one\nBravo two');
       c.clear();
       expect(c.selection, isNull);
       expect(c.getText(), '');

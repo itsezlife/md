@@ -128,7 +128,8 @@ void main() {
         // '# Title\nBody text here' → block 0 heading "Title" (len 5), block 1
         // paragraph "Body text here" — adjacent blocks with no spacer between.
         final md = Markdown.fromString('# Title\nBody text here');
-        final controller = MarkdownSelectionController()
+        final controller = MarkdownSelectionController(
+            formatter: MarkdownSelectionFormatter.plain)
           ..setDocuments(
               <MarkdownDocumentRef>[MarkdownDocumentRef(id: 'd', model: md)])
           ..selection = const MarkdownSelection(
@@ -356,7 +357,7 @@ void main() {
       expect(e.blockIndex, 1, reason: 'blockIndex incremented');
       expect(e.offset, 0, reason: 'offset reset to the block start');
       expect(e.documentId, 'd');
-      expect(c.getText(), 'Title');
+      expect(c.getText(MarkdownSelectionFormatter.plain), 'Title');
     });
 
     test('stepping backward off a block start moves into the previous block',
@@ -409,7 +410,8 @@ void main() {
       expect(end.documentId, 'b');
       expect(end.blockIndex, 2);
       expect(end.offset, 9, reason: 'the very last position across all docs');
-      expect(c.getText(), 'Alpha one\nAlpha two\n\nBravo one\nBravo two');
+      expect(c.getText(MarkdownSelectionFormatter.plain),
+          'Alpha one\nAlpha two\n\nBravo one\nBravo two');
 
       c.selection = const MarkdownSelection.collapsed(
           MarkdownPosition(documentId: 'b', blockIndex: 2, offset: 9));
