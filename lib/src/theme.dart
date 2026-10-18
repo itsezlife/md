@@ -23,6 +23,15 @@ typedef MarkdownCursorResolver = MouseCursor? Function(
   MD$Block? block,
 );
 
+/// Where the emoji sit in [text]: the ranges of UTF-16 code units, in reading
+/// order and not overlapping, of each emoji sequence (a skin tone, a ZWJ
+/// family, a flag and a keycap are one range each).
+///
+/// The package knows no emoji table: the host brings its own scanner, the one
+/// that also decides what its messages count as emoji. See
+/// [MarkdownThemeData.emojiRuns].
+typedef MarkdownEmojiRuns = Iterable<TextRange> Function(String text);
+
 /// Primary monospace face for [platform] — the default for
 /// [MarkdownThemeData.monospaceFontFamily].
 ///
@@ -103,7 +112,10 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.onMentionTap,
     this.highlighter,
     this.cursorResolver,
-  })  : monospaceFontFamily = monospaceFontFamily ??
+    this.emojiRuns,
+    this.emojiScale = 1,
+  })  : assert(emojiScale > 0, 'emojiScale must be positive'),
+        monospaceFontFamily = monospaceFontFamily ??
             _defaultMonospaceFontFamily(defaultTargetPlatform),
         monospaceFontFamilyFallback =
             monospaceFontFamilyFallback ?? _defaultMonospaceFontFamilyFallback,
@@ -140,6 +152,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     void Function(String scheme, String? id, String name)? onMentionTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
+    MarkdownEmojiRuns? emojiRuns,
+    double emojiScale = 1,
   }) {
     return MarkdownThemeData(
       textStyle: textStyle ??
@@ -180,6 +194,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       onMentionTap: onMentionTap,
       highlighter: highlighter,
       cursorResolver: cursorResolver,
+      emojiRuns: emojiRuns,
+      emojiScale: emojiScale,
     );
   }
 
@@ -349,6 +365,30 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// cursor for selectable documents, or deferred cursor otherwise).
   final MarkdownCursorResolver? cursorResolver;
 
+  /// Finds the emoji in a run of text, so they can be drawn larger than the
+  /// text around them. When `null` (the default) an emoji is drawn like any
+  /// other character, at the font size.
+  ///
+  /// A colour emoji font draws its glyph into a square of the font size, which
+  /// is smaller than the line the text sits in: SF is about 1.18 times its size
+  /// tall, so a 15 px emoji next to 15 px text looks undersized, and a custom
+  /// emoji (an inline embed, 1.2 times the font's height) beside it looks
+  /// large. With a scanner, each range it reports is set as a run of its own
+  /// whose font size makes the glyph [emojiScale] times the font's height (its
+  /// ascent plus descent, the rule the inline embeds use), with the line height
+  /// of the surrounding text, so a line with an emoji is as tall as one
+  /// without. The text, its offsets, the selection and the recognizers are
+  /// those of the text without the scanner.
+  ///
+  /// The scanner runs once per text span at build time; it should be pure and
+  /// cheap, and the same function for the life of the theme.
+  final MarkdownEmojiRuns? emojiRuns;
+
+  /// How many times the font's height ([emojiRuns]' glyphs are drawn at):
+  /// 1 is the height of the line's font, as Android draws a unicode emoji; the
+  /// inline embeds use 1.2. Only read when [emojiRuns] is set.
+  final double emojiScale;
+
   final List<TextStyle?> _headingStyles;
 
   /// Returns a [TextStyle] for the given heading level.
@@ -468,6 +508,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     void Function(String scheme, String? id, String name)? onMentionTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
+    MarkdownEmojiRuns? emojiRuns,
+    double? emojiScale,
   }) =>
       MarkdownThemeData(
         textDirection: textDirection ?? this.textDirection,
@@ -500,6 +542,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
         onMentionTap: onMentionTap ?? this.onMentionTap,
         highlighter: highlighter ?? this.highlighter,
         cursorResolver: cursorResolver ?? this.cursorResolver,
+        emojiRuns: emojiRuns ?? this.emojiRuns,
+        emojiScale: emojiScale ?? this.emojiScale,
       );
 
   @override
@@ -546,6 +590,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       onMentionTap: t < 0.5 ? onMentionTap : other?.onMentionTap,
       highlighter: t < 0.5 ? highlighter : other?.highlighter,
       cursorResolver: t < 0.5 ? cursorResolver : other?.cursorResolver,
+      emojiRuns: t < 0.5 ? emojiRuns : other?.emojiRuns,
+      emojiScale: t < 0.5 ? emojiScale : other?.emojiScale ?? emojiScale,
     );
   }
 

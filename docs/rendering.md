@@ -364,6 +364,21 @@ Render-override hooks:
   dropping text-bearing spans shifts the painter's offset space vs the model, so
   the highlight stays right but copied text can misalign. Avoid dropping
   text-bearing spans when selection is enabled.**
+- **`emojiRuns`** `Iterable<TextRange> Function(String)` + **`emojiScale`** —
+  draw the emoji of a text larger than its letters. A colour emoji font draws
+  its glyph into a square of the font size, shorter than the line (SF is about
+  1.18 times its size tall) and shorter than an inline embed (1.2 times the
+  font's height). With a scanner each range it reports is a child `TextSpan` of
+  its own whose font size makes the glyph `emojiScale` times the font's height
+  (ascent plus descent, the same probe the embeds use), and whose `height` is
+  the text's line, so the emoji does not add to the line's height beyond what
+  an emoji at the font size already did (the emoji font's deeper descent can
+  make a line one pixel taller). The plain text, its offsets, the spoiler
+  ranges and the recognizers are those of the text without a scanner: the
+  split span keeps the parent's style and the recognizer goes on every piece.
+  The package ships no emoji table: the host's scanner is the one that also
+  decides what its messages count as emoji. Ranges that are empty, out of
+  bounds or overlapping are dropped. Default `null`: no change.
 - **`cursorResolver`** `MouseCursor? Function(Offset, int?, MD$Block?)` —
   dynamically resolves hover mouse cursors per local offset, hit block index,
   and hit block model, falling back to default link/text/defer cursors when null.
