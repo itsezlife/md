@@ -1,5 +1,6 @@
 library;
 
+export 'src/inline_embed.dart';
 export 'src/line_clamp.dart';
 export 'src/markdown.dart';
 export 'src/nodes.dart';

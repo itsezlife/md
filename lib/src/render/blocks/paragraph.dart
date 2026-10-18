@@ -10,6 +10,7 @@ import 'package:flutter/rendering.dart';
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
+import '../inline_embeds.dart';
 import '../span_builder.dart';
 
 /// A class for painting a paragraph block in markdown.
@@ -23,12 +24,14 @@ class BlockPainter$Paragraph
   BlockPainter$Paragraph({
     required List<MD$Span> spans,
     required this.theme,
+    MarkdownEmbedHost? inlineEmbeds,
   })  : _selectionHighlightAboveCachedContent =
             markdownSpansPaintOpaqueBackground(spans),
         painter = TextPainter(
           text: paragraphFromMarkdownSpans(
             spans: spans,
             theme: theme,
+            embeds: inlineEmbeds,
           ),
           textAlign: TextAlign.start,
           textDirection: theme.textDirection,

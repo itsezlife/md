@@ -14,6 +14,8 @@ canvas via one `RenderBox` and a list of `BlockPainter`s — **no widget per blo
 | `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, private `_distanceToRect`. |
 | `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle, revealed})` → `TextSpan` (a `MarkdownParagraphSpan` when the paragraph has a `\|\|spoiler\|\|`); the `TextPainter` extension `MarkdownSpoilerPainter`; private `_buildTapRecognizer` (link taps from `span.extra['url']`). |
 | `spoiler_phase.dart` | `SpoilerPhase` (`$Hidden` / `$Revealing` / `$Revealed`) — what the painter draws for the document's spoilers. |
+| `inline_embeds.dart` | `MarkdownEmbedSpan` (the placeholder span of one embed) and `MarkdownEmbedHost` (owns the embeds a painter resolved), both `@meta.internal`. |
+| `embed_offset_map.dart` | `MarkdownEmbedOffsets`: the map between painter text offsets and rendered text offsets (`@meta.internal`). |
 | `markdown_painter.dart` | `MarkdownPainter` (`@meta.internal`) — the orchestrator. |
 | `markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface`; plus `_paintNothing`. |
 | `../spoiler.dart` | `MarkdownSpoilerController` — which documents are revealed; public. |
@@ -64,6 +66,46 @@ from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
   `PaintingBinding.instance.systemFonts`; a change calls `invalidateLayout` (nulls
   the cache, disposes+rebuilds every block painter so `TextPainter`s re-layout) +
   `markNeedsLayout`.
+
+## Inline embeds
+
+`![alt](scheme:id)` can be laid out as a real inline object. The contract is in
+`lib/src/inline_embed.dart` and public: `MarkdownInlineEmbed` (size, `visible`,
+`paint(canvas, rect, context)`, a `Listenable` signal, idempotent `dispose`),
+`MarkdownInlineEmbedResolver`, `MarkdownInlineEmbedTarget` (`scheme`, `id`,
+`alt`) and `MarkdownInlineEmbedMetrics` (`fontSize`, `ascent`, `descent`,
+`devicePixelRatio`, and `extent`, the size rule). The package knows no
+implementation; a host adapts its own asset type to it. Painting the embed and
+the public `MarkdownWidget` parameter are not in this layer yet: a resolver
+reaches `MarkdownRenderObject` / `MarkdownPainter` through `embedResolver` and
+`devicePixelRatio`.
+
+- **Room.** `paragraphFromMarkdownSpans(embeds: …)` turns an image span whose
+  `src` has a scheme the resolver answers for into a `MarkdownEmbedSpan`: a
+  `PlaceholderSpan` (`PlaceholderAlignment.middle`), not a `WidgetSpan`. The
+  default block painters take the host as `inlineEmbeds` (paragraph, heading,
+  quote, alert, list, table).
+- **Size.** Android's rule: a square of `1.2 × (ascent + descent)` of the
+  paragraph font, rounded to device pixels (`MarkdownInlineEmbedMetrics.extent`).
+  The font is probed once per paragraph, on its first embed, from a one-line
+  layout that carries only the font family, size, weight and style (not
+  `TextStyle.height`); every embed of the paragraph gets that one metrics
+  value. The resolver sizes the embed from it; the span reserves the embed's
+  width and the *font's* height, and the square is centred on that box, so the
+  line is as tall as without the embed and the embed overflows it by about a
+  tenth above and below. Paragraph paint does not clip.
+- **Unresolved.** No resolver, a scheme it returns `null` for, or a `src`
+  without a scheme: the span stays the plain `TextSpan` of its alt text.
+- **Ownership.** `MarkdownPainter` holds one `MarkdownEmbedHost` per resolver
+  and disposes everything it resolved when it rebuilds its block painters (new
+  model or theme, system fonts, a new resolver or pixel ratio) and on
+  `dispose`. `$List` and `$Table` build their paragraphs on every layout, so
+  they release the previous ones first.
+- **Offsets.** The placeholder is one U+FFFC in the painter text and its alt
+  text is the span text in `renderedText`. `SelectableTextBlock` and
+  `MultiPainterSelectable` convert through `MarkdownEmbedOffsets` (identity for
+  a paragraph without embeds); see [selection](selection.md#inline-embeds).
+  `SelectableFragment.length` and `.renderedText` are in rendered terms.
 
 ## The `BlockPainter` framework
 

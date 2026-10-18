@@ -10,6 +10,7 @@ import 'package:flutter/rendering.dart';
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
+import '../inline_embeds.dart';
 import '../span_builder.dart';
 
 /// A class for painting a heading block in markdown.
@@ -24,6 +25,7 @@ class BlockPainter$Heading
     required int level,
     required List<MD$Span> spans,
     required this.theme,
+    MarkdownEmbedHost? inlineEmbeds,
   })  : _selectionHighlightAboveCachedContent =
             markdownSpansPaintOpaqueBackground(spans),
         painter = TextPainter(
@@ -31,6 +33,7 @@ class BlockPainter$Heading
             spans: spans,
             theme: theme,
             textStyle: theme.headingStyleFor(level),
+            embeds: inlineEmbeds,
           ),
           textAlign: TextAlign.start,
           textDirection: theme.textDirection,

@@ -89,9 +89,9 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
 
 Everything public is re-exported from `lib/flutter_md.dart`:
 
-- **Whole-file exports:** `markdown.dart`, `nodes.dart`, `parser.dart`,
-  `selection.dart`, `selection_scope.dart`, `spoiler.dart`, `theme.dart`,
-  `widget.dart`.
+- **Whole-file exports:** `inline_embed.dart`, `markdown.dart`, `nodes.dart`,
+  `parser.dart`, `selection.dart`, `selection_scope.dart`, `spoiler.dart`,
+  `theme.dart`, `widget.dart`.
 - **Curated `show` from `render.dart`:** the `BlockPainter` framework
   (`BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`,
   `SelectableTextBlock`,
