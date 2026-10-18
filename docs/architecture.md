@@ -37,7 +37,10 @@ MarkdownWidget(markdown: Markdown.fromString(src), theme: myTheme)
 (a `RenderBox`), which owns a `MarkdownPainter`. The painter builds a
 `List<BlockPainter>` (one per non-filtered block, via `theme.builder ??`
 defaults), lays them out top-to-bottom recording each block's top-`y` in
-`_blockOffsets`, and paints them into a cached `ui.Picture` keyed by size.
+`_blockOffsets`, and paints them into a cached `ui.Picture` keyed by size and
+spoiler state. Anything that moves (pannable blocks, the spoiler dust and ripple,
+inline embeds, the selection tint) is painted live around that picture, never
+into it; the order is in [rendering](rendering.md#render-flow).
 
 For selection, the same widget opts in when given a `documentId` **and** a
 resolvable `MarkdownSelectionController` (explicit or via an ambient
@@ -62,9 +65,9 @@ rects, handles). This is the core design decision; the alternatives (Flutter's
 
 These are cross-cutting; each subsystem doc repeats the ones it owns.
 
-- **Glyph cache.** `MarkdownPainter` caches one `ui.Picture` keyed by paint size
-  (two while a spoiler reveal runs: hidden and revealed; see
-  [rendering](rendering.md#spoilers)); it is reused on every repaint and only
+- **Glyph cache.** `MarkdownPainter` caches one `ui.Picture` keyed by
+  `(paint size, revealed)` (two while a spoiler reveal runs: hidden and revealed;
+  see [rendering](rendering.md#spoilers)); it is reused on every repaint and only
   nulled by `update`/`invalidateLayout` (model/theme change or system-font
   change). Repaints from selection or
   horizontal pan/fling must not invalidate it. **`HorizontallyPannableBlock`s are
@@ -81,6 +84,14 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
   empty). Hit-testing, highlight geometry, and copied text all index the same
   space. `blockFilter` may drop blocks, but `_sourceIndices` preserves the true
   `Markdown.blocks` index so anchors stay valid.
+- **No inline layer re-records the picture.** An embed, a spoiler (fill, dust,
+  ripple) and a mention add no recording: embeds and spoilers are live passes, a
+  mention is a text style. A signal from an embed or a tick of the dust repaints;
+  it never lays out and never re-records.
+- **Text and painter text differ only at an embed.** A resolved embed is one
+  U+FFFC in the `TextPainter` and its alt text in `markdownBlockRenderedText`;
+  `MarkdownEmbedOffsets` converts, and is the identity for a block without
+  embeds. See [selection](selection.md#inline-embeds).
 - **Span offsets.** Concatenating a block's `MD$Span.text` reproduces its rendered
   text; `start/end` index that visible text. See [parser](parser.md) for the
   escape/math/link caveats.
@@ -91,7 +102,18 @@ Everything public is re-exported from `lib/flutter_md.dart`:
 
 - **Whole-file exports:** `inline_embed.dart`, `markdown.dart`, `nodes.dart`,
   `parser.dart`, `selection.dart`, `selection_scope.dart`, `spoiler.dart`,
-  `theme.dart`, `widget.dart`.
+  `theme.dart`, `widget.dart`. Two of them are the inline layer's contracts:
+  - *The embed contract* (`inline_embed.dart`): `MarkdownInlineEmbed`,
+    `MarkdownInlineEmbedResolver`, `MarkdownInlineEmbedTarget`,
+    `MarkdownInlineEmbedMetrics` and the paint context. The package knows no
+    implementation; a host adapts its own asset type and passes the resolver as
+    `MarkdownWidget.embedResolver`.
+  - *`MarkdownSpoilerController`* (`spoiler.dart`): which documents are revealed
+    (`isRevealed`, `reveal(id, {origin})`, `hide`), the motion setting
+    (`animate`) and the dust clock the host feeds (`advance`, `wantsTicks`).
+    Passed as `MarkdownWidget.spoilerController` with a `documentId`.
+  - *Mention taps*: `MarkdownThemeData.onMentionTap(scheme, id, name)` and
+    `mentionColor`, beside `onLinkTap` and `linkColor`.
 - **Curated `show` from `render.dart`:** the `BlockPainter` framework
   (`BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`,
   `SelectableTextBlock`,

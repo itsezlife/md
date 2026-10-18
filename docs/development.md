@@ -116,12 +116,14 @@ Base `package:flutter_lints/flutter.yaml`, plus `strict-casts`, `strict-raw-type
 lib/flutter_md.dart          public barrel (export 'src/…' [+ show for render.dart])
 lib/src/
   markdown.dart nodes.dart parser.dart   # model + parser        → docs/parser.md
+  inline_embed.dart spoiler.dart         # inline layer contracts → docs/rendering.md
   theme.dart                             # MarkdownThemeData, MarkdownTheme
   widget.dart                            # MarkdownWidget (LeafRenderObjectWidget)
   render.dart  render/**                 # canvas render layer    → docs/rendering.md
   selection.dart selection_scope.dart    # text selection         → docs/selection.md
 test/
-  parser/ nodes/ selection/ theme/ widget/   (aggregated by test/unit_test.dart)
+  parser/ nodes/ selection/ spoiler/ render/ theme/ widget/   (aggregated by test/unit_test.dart)
+  parser/dialect_conformance_test.dart   the grammar a chat host writes → docs/parser.md
 benchmark/                    parser + render benchmarks, compare.dart, scenarios.dart,
                               .render_baseline.txt
 example/                      md_example app: lib/main.dart (Editor/Selection/Chat tabs), lib/tabs/*

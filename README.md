@@ -18,6 +18,14 @@ A high-performance, lightweight Markdown parser and renderer specifically design
 - **🎨 Fully Customizable**: Theme-based styling with complete control over appearance
 - **📱 Flutter Native**: Built from the ground up for Flutter with custom render objects
 - **🔗 Interactive Elements**: Clickable links with customizable tap handlers
+- **🧩 Inline Embeds**: `![alt](scheme:id)` takes room in its line as a real
+  inline object a host resolves and paints (stickers, custom emoji), at the
+  size of the text, with the alt text as its selection and copy form
+- **🏷️ Mentions**: `[@name](mention:id)`, `[@name](username:name)` and
+  `[#tag](hashtag:tag)` are a span style of their own, coloured without an
+  underline, with a single `onMentionTap(scheme, id, name)`
+- **🫥 Spoilers**: `||text||` stays hidden behind moving particle dust until a
+  tap reveals the whole message with a ripple
 - **✂️ Text Selection**: Cross-block and cross-widget (chat) selection via a
   controller that survives list disposal and streaming updates
 - **🌊 Streaming Parser**: `StreamingMarkdownParser` parses LLM token output
@@ -43,7 +51,8 @@ A high-performance, lightweight Markdown parser and renderer specifically design
 - ~~Strikethrough~~: `~~text~~`
 - `Inline code`: `` `code` ``
 - ==Highlight==: `==text==`
-- ||Spoiler||: `||text||`
+- ||Spoiler||: `||text||` (hidden when a `MarkdownSpoilerController` is passed,
+  see [Inline layer](#-inline-layer))
 - Inline math (**opt-in**): `$\alpha$`, `$\pi \approx 3.14$`, `$x^2$`, `$H_2O$`
   (common LaTeX commands + super/subscripts → Unicode)
 
@@ -175,7 +184,19 @@ center, `---:` right):
 ![Image alt text](https://example.com/image.png)
 ```
 
-Images currently not displayed!
+The package fetches and draws no images: an image span shows its alt text, unless
+a host resolves its target as an inline embed (see [Inline layer](#-inline-layer)).
+
+### Mentions
+
+```markdown
+[@alice](mention:42)  [@alice](username:alice)  [#flutter](hashtag:flutter)
+```
+
+A link whose destination scheme is `mention:`, `username:` or `hashtag:` is a
+mention-class span, not a link: it paints in `MarkdownThemeData.mentionColor`
+(the link colour by default) with no underline, and a tap calls
+`onMentionTap(scheme, id, name)` instead of `onLinkTap`.
 
 ### Horizontal Rules
 
@@ -199,7 +220,7 @@ dependencies:
   flutter_md:
     git:
       url: https://github.com/itsezlife/md.git
-      ref: v0.3.0 # a release tag; the fork is not published to pub.dev
+      ref: v0.4.0 # a release tag; the fork is not published to pub.dev
 ```
 
 Then run:
@@ -211,6 +232,41 @@ flutter pub get
 > **Upgrading from 0.0.x?** See the
 > [Migration guide: 0.0.x → 0.2.x](docs/migration/0.0.x-to-0.2.x.md). The upgrade
 > is almost entirely backward compatible — most apps need no code changes.
+
+## 🧩 Inline layer
+
+Three things a chat body needs sit on the same inline text, and none of them
+re-records the cached glyph picture: they are live passes drawn around it.
+
+```dart
+final spoilers = MarkdownSpoilerController();
+
+MarkdownWidget(
+  markdown: message.markdown,
+  documentId: message.id,
+  spoilerController: spoilers,        // `||x||` hidden until a tap reveals
+  embedResolver: myResolver,          // `![alt](scheme:id)` as inline objects
+  theme: theme.copyWith(
+    mentionColor: Colors.teal,
+    onMentionTap: (scheme, id, name) => openProfile(scheme, id ?? name),
+  ),
+);
+```
+
+- **Embeds.** Implement `MarkdownInlineEmbedResolver` (scheme and id to a
+  `MarkdownInlineEmbed`, or `null` to keep the alt text) and pass the same
+  instance for the widget's lifetime. The embed is sized `1.2 ×` the font's
+  ascent plus descent, painted every frame it signals, told when it is visible,
+  and disposed with the document. Selection treats the alt text as one unit.
+- **Spoilers.** One `MarkdownSpoilerController` per host, keyed by `documentId`:
+  a tap reveals every spoiler of the message with a 300 ms ripple, and state
+  survives remounts. The dust is one shared tile per colour and pixel ratio; feed
+  `controller.advance(elapsed)` from your clock while `controller.wantsTicks` is
+  true, or leave it still. Copy writes a hidden spoiler revealed.
+- **Mentions.** Described under [Mentions](#mentions).
+
+See [rendering](docs/rendering.md) for the passes and [selection](docs/selection.md)
+for offsets and copy.
 
 ## ✂️ Text Selection
 

@@ -12,7 +12,7 @@ canvas via one `RenderBox` and a list of `BlockPainter`s — **no widget per blo
 | File | Contents |
 |---|---|
 | `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, `PannedContent` (`@meta.internal`: the pan transform a block gives the live embed pass), private `_distanceToRect`. |
-| `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle, revealed})` → `TextSpan` (a `MarkdownParagraphSpan` when the paragraph has a `\|\|spoiler\|\|`); the `TextPainter` extension `MarkdownSpoilerPainter`; private `_buildTapRecognizer` (link taps from `span.extra['url']`). |
+| `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle, revealed})` → `TextSpan` (a `MarkdownParagraphSpan` when the paragraph has a `\|\|spoiler\|\|`); the `TextPainter` extension `MarkdownSpoilerPainter`; private tap recognizers (`onLinkTap` from `span.extra['url']` for a link, `onMentionTap` from the scheme, id and name in `extra` for a mention-class span; neither fires under a hidden spoiler). |
 | `spoiler_particle_field.dart` / `spoiler_particle_tile.dart` | `SpoilerParticleField` (the dust simulation) and `SpoilerParticleTile` / `SpoilerParticleTiles` (the live tile image and its per-process registry). |
 | `spoiler_phase.dart` | `SpoilerPhase` (`$Hidden` / `$Revealing` / `$Revealed`) — what the painter draws for the document's spoilers. |
 | `inline_embeds.dart` | `MarkdownEmbedSpan` (the placeholder span of one embed) and `MarkdownEmbedHost` (owns the embeds a painter resolved and forwards their signals), both `@meta.internal`. |
@@ -50,14 +50,29 @@ from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
   the local map or controller, accumulates height, tracks max width. **No
   inter-block spacing** is added — a `MD$Spacer` block supplies gaps.
 - **Paint:** guarded by `!_needsLayout`. **Non-pannable glyphs are cached in a
-  `ui.Picture` keyed by size** — if `_lastSize == size`, the picture is replayed
-  via `drawPicture`; otherwise it re-records only non-`HorizontallyPannableBlock`
-  painters. Pannable blocks always paint live afterward (each applies its own
-  clip + translate). The cache is nulled only by `update` (model/theme change) and
-  `invalidateLayout` (system fonts). An overflow guard stops emitting blocks past
-  the viewport height. Inline embeds are a further live pass (see
-  [Inline embeds](#inline-embeds)): after the picture and the pannable blocks,
-  before the above-content selection tint.
+  `ui.Picture` keyed by `(size, revealed)`** — if `_lastSize == size`, the picture
+  for the document's spoiler state is replayed via `drawPicture`; otherwise it
+  re-records only non-`HorizontallyPannableBlock` painters. A document without a
+  spoiler has one picture; one with spoilers has the hidden picture, the
+  revealed one once revealed, and both only while the reveal ripple runs. Pannable
+  blocks always paint live afterward (each applies its own clip + translate). The
+  cache is nulled only by `update` (model/theme change) and `invalidateLayout`
+  (system fonts). An overflow guard stops emitting blocks past the viewport
+  height.
+- **Paint order**, back to front (`MarkdownRenderObject.paint`). Only the second
+  step is recorded; everything else is drawn live each frame:
+  1. the selection tint under the glyphs;
+  2. the glyph picture for `(size, revealed)` (during a ripple, the hidden
+     picture outside the circle and the revealed one inside it);
+  3. the pannable blocks (clip and translate, so a pan moves no picture);
+  4. the spoiler pass: the dust fill over each hidden spoiler, and the ripple
+     (see [Spoilers](#spoilers));
+  5. the embeds pass (see [Inline embeds](#inline-embeds)), each embed at the
+     opacity its spoiler leaves it;
+  6. the selection tint above opaque chrome, over code fences, table fills and
+     embeds.
+  A mention has no step of its own: it is colour and no underline on a text run,
+  so it lives in step 2 or 3 with the rest of the text.
 - **Hit-testing** (`_blockIndexForDy`): **binary search** over `_blockOffsets`.
   `positionForLocal` maps a content-local offset → `(sourceBlockIndex, textOffset)`
   (null if the hit block isn't a `SelectableBlockPainter`). `handleEvent` routes
@@ -373,7 +388,7 @@ Public (in `flutter_md.dart`'s `show` list): the framework
 
 ## Invariants (repeated from [architecture](architecture.md), owned here)
 
-- Glyphs cached in a `ui.Picture` keyed by size; reused on repaint; nulled only on
+- Glyphs cached in a `ui.Picture` keyed by `(size, revealed)`; reused on repaint; nulled only on
   `update`/`invalidateLayout`. **Pannable blocks paint outside that Picture.**
 - **Selection highlight is painted outside the glyph [Picture] cache**, in two
   passes matching `SelectableRegion` / `SelectionArea`: first **under** the
@@ -383,11 +398,15 @@ Public (in `flutter_md.dart`'s `show` list): the framework
   backgrounds) so the tint stays visible there. Drags/streaming/pan never rebuild
   the glyph cache. Color = `controller.selectionColor ?? _kSelectionColor`
   (`0x552196F3`). Pannable-block highlights are clipped to the block viewport.
-- **An embed never re-records the picture per frame.** Embeds paint in a live
-  pass; a signal repaints, a change of resolver or pixel ratio rebuilds.
-- **Spoilers never re-record per frame.** At most two glyph pictures exist per
-  size (hidden, revealed); the fill pass and the ripple are live passes above
-  them, and a reveal swaps pictures without laying out.
+- **An embed, a spoiler or a mention never re-records the picture per frame.**
+  - *Embed:* it paints in a live pass; a signal repaints, a change of resolver or
+    pixel ratio rebuilds.
+  - *Spoiler:* at most two glyph pictures exist per size (hidden, revealed); the
+    fill pass and the ripple are live passes above them, and a reveal swaps
+    pictures without laying out.
+  - *Mention:* it is a text style (the mention colour, no underline) resolved
+    when the paragraph is built, so it adds no live paint; only which callback a
+    tap reaches differs from a link.
 - `isRepaintBoundary => controller != null`; `alwaysNeedsCompositing` when the
   surface owns a start and/or end handle `LeaderLayer`.
 - Handle `LeaderLayer`s are pushed in `paint` via `LayerHandle` (only when a

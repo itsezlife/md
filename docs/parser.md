@@ -110,7 +110,8 @@ literal and never leak style to end of line):
 - `*x*` italic, `**x**` bold; `_x_` italic, **`__x__` = UNDERLINE, not bold**.
 - `~~x~~` strikethrough, `==x==` highlight, `||x||` spoiler — all require the
   **double** marker; a single one is literal.
-- `` `x` `` monospace, single backtick only (double backtick unsupported); inside
+- `` `x` `` monospace, single backtick only (a longer fence is a known gap, see
+  [Dialect conformance](#dialect-conformance)); inside
   a code span all markdown is literal.
 - `_` cannot open/close intra-word (snake_case, Cyrillic preserved); `*` may
   emphasize intra-word (`a*b*c`).
@@ -120,7 +121,9 @@ Inline:
 - **Soft line breaks preserved** — consecutive non-blank lines join into one
   paragraph with embedded `\n`; a blank line splits paragraphs and emits a
   `MD$Spacer`.
-- **Escapes** for `` ! # $ ( ) * + - . [ \ ] _ ` { } ``; `\\` → `\`.
+- **Escapes** for `` ! # $ ( ) * + - . = > [ \ ] _ ` { | } ~ ``; `\\` → `\`.
+  `= > | ~` are the markers a copy writes, so a literal run of them reads back
+  as text.
 - **Links/images** `[text](url)`, `![alt](src)`; angle-bracket URLs, quoted/paren
   titles, balanced parens in bare URLs. **No reference-style links, no
   autolinks.** Emphasis wrapping a link merges masks (`**[x](u)**` → bold|link).
@@ -143,6 +146,50 @@ Block-level:
 - **Thematic breaks** `---`/`***`/`___` (3+ markers); **ATX headings** `#`–`######`
   (`#hashtag` and 7+ `#` are paragraphs; trailing `#` stripped); **fenced code**
   ` ``` ` / `~~~` with a language label; unterminated fences run to EOF.
+
+## Mention-class links
+
+A link whose destination scheme is `mention:`, `username:` or `hashtag:` is not
+a link but a **mention-class span**: style bit `MD$Style.mention` (`1 << 9`),
+**never** together with `link`. The scheme is read once, in the parser
+(`_mentionTarget`), so the renderer and the tap recognizers never sniff a URL:
+
+| Spelling | `extra` |
+|---|---|
+| `[@alice](mention:42)` | `scheme: mention`, `id: 42`, `name: @alice` (the label) |
+| `[@alice](username:alice)` | `scheme: username`, `name: alice` (the destination) |
+| `[#tag](hashtag:tag)` | `scheme: hashtag`, `name: tag` |
+
+The scheme is matched case-insensitively. An image keeps `image` whatever its
+scheme (`![a](mention:1)` is an image span), and `[x](https://a.b)` or
+`[x](mailto:a@b.c)` stay links. A mention-class span paints in
+`MarkdownThemeData.mentionColor` (the link colour when null) with no underline,
+and a tap calls `onMentionTap(scheme, id, name)` and never `onLinkTap`; see
+[rendering](rendering.md#theme-customization-markdownthemedata).
+
+## Dialect conformance
+
+A chat host writes message bodies as markdown from its own rich text, so the
+grammar it writes is a contract this parser keeps.
+`test/parser/dialect_conformance_test.dart` pins it as string fixtures with the
+blocks and spans each must parse to: every style, links, the three mention-class
+schemes, `![alt](scheme:id)` embeds, escaped specials, quote lines, fenced code
+blocks and lists (`- ` / `1. `, two spaces a level). It depends on no host code;
+the writer's own tests cover rich text to string and back. Change a spelling the
+parser reads and the fixture for it fails.
+
+The same file has a **known gaps** group for what a writer may emit and the
+parser reads differently from what it means. Each case pins today's reading, so
+fixing the parser fails the case and the case moves to the table above:
+
+- a soft break inside a list item (`"- one  \ncontinued"`) ends the list instead
+  of continuing the item;
+- backslash escapes inside a link label or destination keep their backslash
+  (`[a\]b](u)`, `[t](https://x/a_\(b\))`);
+- a code span fenced with two backticks or more, and a code fence longer than
+  three backticks, are not read as code;
+- an embed inside a link label (`[![a](unicode:1F44D)](u)`) is read as a link
+  whose label stops at the embed's bracket.
 
 ## Gotchas for contributors
 

@@ -196,6 +196,29 @@ range, not on the pointer:
   `MarkdownEmbedSpan` over the embed's box, including the half nearer the text
   after it, where the painter alone would answer with the next span.
 
+### Spoilers
+
+A hidden spoiler keeps its glyphs and its offsets (the hidden form is the same
+text with a transparent colour; see [rendering](rendering.md#spoilers)), so the
+rendered-text space, hit-testing and the range a selection holds are the same
+whether the document is hidden or revealed.
+
+- **Copy reads through the mask.** The default `MarkdownSourceFormatter` writes a
+  hidden spoiler revealed, with its `||` marks kept; the plain formatter writes
+  its text. Copy never needs the document to be revealed first.
+- **Selecting into a spoiler does not reveal it.** The package keeps selection
+  and spoiler state apart: `MarkdownSpoilerController` holds which documents are
+  revealed and the selection controller holds ranges. A host that wants a
+  selection to uncover what it covers calls
+  `MarkdownSpoilerController.reveal(documentId)` when the range enters a hidden
+  spoiler (no origin: the ripple starts from the middle of the document's
+  spoilers). Nothing re-hides when the selection is dismissed.
+- **A tap on a hidden spoiler reveals.** The render object takes a pointer that
+  goes down on a hidden spoiler instead of forwarding it to the blocks, so a link
+  or mention under it does not activate (`onLinkTap` / `onMentionTap` stay
+  silent); the same tap after the reveal does. The scope's own selection
+  recognizers are not involved in that decision.
+
 ## `MarkdownSelectionScope` — gestures, keyboard, handles, toolbar
 
 `MarkdownSelectionScope` (a `StatefulWidget`) owns interaction for its subtree and

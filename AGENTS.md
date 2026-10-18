@@ -7,7 +7,7 @@ first, every time. Deep detail lives in [`docs/`](docs/) — linked per section.
 immutable **node model** → a **canvas render layer** (one `RenderBox`, no
 widget-per-block) → cross-block/cross-widget **text selection**. Repo:
 `itsezlife/md` (a fork of `DoctorinaAI/md` that no longer tracks upstream),
-package `flutter_md`, currently `0.3.0`, branch `master`, consumed by git ref.
+package `flutter_md`, currently `0.4.0`, branch `master`, consumed by git ref.
 
 ## Commands (these are the CI gates — run before you claim done)
 
@@ -38,6 +38,7 @@ benchmarks run under `dart run`.
 | `markdown.dart` | `Markdown` model + `Markdown.fromString(...)` entry point | [parser](docs/parser.md) |
 | `theme.dart` | `MarkdownThemeData` (a `ThemeExtension`), `MarkdownTheme`; `builder`/`blockFilter`/`spanFilter` hooks | [rendering](docs/rendering.md) |
 | `inline_embed.dart` | Public inline embed contract (`MarkdownInlineEmbed`, resolver, target, metrics); the package knows no implementation | [rendering](docs/rendering.md#inline-embeds) |
+| `spoiler.dart` | `MarkdownSpoilerController`: revealed documents, reveal origin, the dust clock the host feeds; public | [rendering](docs/rendering.md#spoilers) |
 | `render.dart` | **re-export barrel** for `render/` (keeps `src/render.dart` imports working) | [rendering](docs/rendering.md) |
 | `render/block_painter.dart` | `BlockPainter` framework: interfaces + mixins (`SelectableTextBlock`, `MultiPainterSelectable`, `ParagraphGestureHandler`, `SelectableFragment`, `HorizontallyPannableBlock`) | [rendering](docs/rendering.md) |
 | `render/span_builder.dart` | `paragraphFromMarkdownSpans(...)` — the public span→`TextSpan` helper | [rendering](docs/rendering.md) |
@@ -74,11 +75,12 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
   holds a `List<BlockPainter>`; blocks stack vertically (no implicit gaps — a
   `MD$Spacer` supplies them); block hit-testing is a binary search over
   `_blockOffsets` by `dy`.
-- **Glyphs are cached in a `ui.Picture` keyed by size.** It is reused on repaint
-  and only invalidated by `update`/`invalidateLayout`. Do not route selection or
-  scroll/pan repaints through it. **`HorizontallyPannableBlock` glyphs are painted
-  outside that Picture** (live clip + translate), same layering rule as selection
-  highlights — pan/fling must only `markNeedsPaint`.
+- **Glyphs are cached in a `ui.Picture` keyed by `(size, revealed)`.** It is reused
+  on repaint and only invalidated by `update`/`invalidateLayout`. Do not route
+  selection, scroll/pan, embed-signal or spoiler dust/ripple repaints through it.
+  **`HorizontallyPannableBlock` glyphs are painted outside that Picture** (live
+  clip + translate), same layering rule as selection highlights — pan/fling must
+  only `markNeedsPaint`.
 - **Selection highlight is painted OUTSIDE that cached Picture** (under glyphs
   for normal text, and again above opaque block chrome such as code fences /
   table fills). Pannable-block highlights are clipped to the block viewport.
