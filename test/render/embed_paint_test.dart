@@ -1,3 +1,5 @@
+import 'dart:io' show Directory;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render/markdown_painter.dart';
@@ -375,6 +377,19 @@ void main() {
   group('embed paint: goldens', () {
     const source = 'a ![ab](emoji:1) b ![cd](emoji:2) c';
     const shot = ValueKey<String>('shot');
+
+    // The aggregate entrypoint runs from test/, so a bare golden path would
+    // resolve there; pin the comparator to this file and put it back.
+    late GoldenFileComparator previous;
+    setUpAll(() {
+      previous = goldenFileComparator;
+      goldenFileComparator = LocalFileComparator(
+        Uri.file(
+          '${Directory.current.path}/test/render/embed_paint_test.dart',
+        ),
+      );
+    });
+    tearDownAll(() => goldenFileComparator = previous);
 
     // A 3x display and a box just big enough for the line, so the image is
     // the paragraph and little else.
