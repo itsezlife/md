@@ -237,6 +237,71 @@ void main() => group('Inline parsing', () {
         });
       });
 
+      group('Mentions', () {
+        test('mention:<id> is a mention span carrying scheme, id, name', () {
+          final span = _spans('[@a](mention:42)').single;
+          expect(span.style, MD$Style.mention);
+          expect(span.style.contains(MD$Style.link), isFalse);
+          expect(span.text, '@a');
+          expect(span.extra, containsPair('scheme', 'mention'));
+          expect(span.extra, containsPair('id', '42'));
+          expect(span.extra, containsPair('name', '@a'));
+        });
+
+        test('username:<name> carries the name and no id', () {
+          final span = _spans('[@a](username:a)').single;
+          expect(span.style, MD$Style.mention);
+          expect(span.style.contains(MD$Style.link), isFalse);
+          expect(span.extra, containsPair('scheme', 'username'));
+          expect(span.extra, containsPair('name', 'a'));
+          expect(span.extra, isNot(contains('id')));
+        });
+
+        test('hashtag:<tag> carries the tag and no id', () {
+          final span = _spans('[#t](hashtag:t)').single;
+          expect(span.style, MD$Style.mention);
+          expect(span.style.contains(MD$Style.link), isFalse);
+          expect(span.extra, containsPair('scheme', 'hashtag'));
+          expect(span.extra, containsPair('name', 't'));
+          expect(span.extra, isNot(contains('id')));
+        });
+
+        test('the scheme is matched case-insensitively', () {
+          final span = _spans('[@a](Mention:42)').single;
+          expect(span.style, MD$Style.mention);
+          expect(span.extra, containsPair('scheme', 'mention'));
+        });
+
+        test('a mention-class span keeps its place in a sentence', () {
+          final spans = _spans('hi [@a](mention:1), see [#t](hashtag:t)!');
+          expect(spans.map((s) => s.text).join(), 'hi @a, see #t!');
+          expect(_styleOf(spans, '@a'), MD$Style.mention);
+          expect(_styleOf(spans, '#t'), MD$Style.mention);
+        });
+
+        test('emphasis wrapping a mention merges, never adds link', () {
+          final span = _spans('**[@a](mention:1)**').single;
+          expect(span.style.contains(MD$Style.mention), isTrue);
+          expect(span.style.contains(MD$Style.bold), isTrue);
+          expect(span.style.contains(MD$Style.link), isFalse);
+        });
+
+        test('web and mail destinations stay links', () {
+          for (final url in ['https://a.b', 'mailto:a@b.c']) {
+            final span = _spans('[x]($url)').single;
+            expect(span.style, MD$Style.link, reason: url);
+            expect(span.style.contains(MD$Style.mention), isFalse);
+            expect(span.extra, containsPair('url', url));
+          }
+        });
+
+        test('an image with a mention scheme stays an image', () {
+          final span = _spans('![a](mention:1)').single;
+          expect(span.style, MD$Style.image);
+          expect(span.style.contains(MD$Style.mention), isFalse);
+        });
+      });
+
       group('Inline code is literal', () {
         test('markdown inside code is not parsed', () {
           final spans = _spans('`**not bold** _nor italic_`');

@@ -135,6 +135,32 @@ P
   [0,6] style=32 "a" {href="b", type="link", url="b"}
   [6,11] style=0 " and "
   [11,17] style=32 "c" {href="d", type="link", url="d"}
+@@@ mention-id
+P
+  [0,16] style=512 "@a" {id="42", name="@a", scheme="mention", type="mention"}
+@@@ mention-username
+P
+  [0,16] style=512 "@a" {name="a", scheme="username", type="mention"}
+@@@ mention-hashtag
+P
+  [0,15] style=512 "#t" {name="t", scheme="hashtag", type="mention"}
+@@@ mention-in-text
+P
+  [0,3] style=0 "hi "
+  [3,18] style=512 "@a" {id="1", name="@a", scheme="mention", type="mention"}
+  [18,24] style=0 ", see "
+  [24,39] style=512 "#t" {name="t", scheme="hashtag", type="mention"}
+  [39,44] style=0 " and "
+  [44,50] style=32 "x" {href="b", type="link", url="b"}
+  [50,51] style=0 "!"
+@@@ mention-emphasis
+P
+  [2,17] style=514 "@a" {id="1", name="@a", scheme="mention", type="mention"}
+  [19,24] style=0 " and "
+  [25,40] style=513 "#t" {name="t", scheme="hashtag", type="mention"}
+@@@ mention-image-stays-image
+P
+  [0,15] style=64 "a" {src="mention:1", type="image", url="mention:1"}
 @@@ escape-emphasis
 P
   [0,32] style=0 "*not italic* and _not underline_"
