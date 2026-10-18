@@ -1,6 +1,7 @@
-import 'dart:ui' show Canvas, Rect, Size, VoidCallback;
+import 'dart:ui' show Canvas, Color, Paint, Rect, Size, VoidCallback;
 
 import 'package:flutter/foundation.dart' show ChangeNotifier;
+import 'package:flutter/rendering.dart' show Matrix4;
 import 'package:flutter_md/flutter_md.dart';
 
 /// One embed [FakeInlineEmbedResolver] made: records how often it was disposed
@@ -17,7 +18,36 @@ final class FakeInlineEmbed extends ChangeNotifier
   final Size size;
 
   @override
-  bool visible = true;
+  bool get visible => _visible;
+  @override
+  set visible(bool value) {
+    _visible = value;
+    visibleChanges.add(value);
+  }
+
+  bool _visible = true;
+
+  /// Every value [visible] was set to, in order.
+  final List<bool> visibleChanges = <bool>[];
+
+  /// What [visible] read when [dispose] first ran.
+  bool? visibleWhenDisposed;
+
+  /// Every [paint] call, in order: the rectangle, the context and the canvas
+  /// transform at the time (a panned block moves the embed with it).
+  final List<
+      ({
+        Rect rect,
+        MarkdownInlineEmbedPaintContext context,
+        Matrix4 transform,
+      })> paints = <({
+    Rect rect,
+    MarkdownInlineEmbedPaintContext context,
+    Matrix4 transform,
+  })>[];
+
+  /// Says that what [paint] draws is different now.
+  void fire() => notifyListeners();
 
   /// How many times [dispose] was called.
   int disposeCount = 0;
@@ -25,15 +55,30 @@ final class FakeInlineEmbed extends ChangeNotifier
   /// Whether [dispose] was called at least once.
   bool get isDisposed => disposeCount > 0;
 
+  /// Fills the rectangle with the tint (opaque black without one), so a
+  /// golden shows where, and in what colour, the embed was painted.
   @override
   void paint(
     Canvas canvas,
     Rect rect,
     MarkdownInlineEmbedPaintContext context,
-  ) {}
+  ) {
+    paints.add((
+      rect: rect,
+      context: context,
+      transform: Matrix4.fromFloat64List(canvas.getTransform()),
+    ));
+    canvas.drawRect(
+      rect,
+      Paint()
+        ..color = (context.tint ?? const Color(0xFF000000))
+            .withValues(alpha: context.opacity),
+    );
+  }
 
   @override
   void dispose() {
+    if (disposeCount == 0) visibleWhenDisposed = _visible;
     disposeCount++;
     // ChangeNotifier asserts on a second dispose; the contract here is
     // idempotent, and the count is what the tests look at.

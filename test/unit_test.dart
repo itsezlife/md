@@ -13,6 +13,7 @@ import 'parser/parser_test.dart' as parser_test;
 import 'parser/regression_test.dart' as regression_test;
 import 'parser/streaming_test.dart' as streaming_test;
 import 'render/embed_offset_map_test.dart' as embed_offset_map_test;
+import 'render/embed_paint_test.dart' as embed_paint_test;
 import 'render/horizontal_pan_test.dart' as horizontal_pan_test;
 import 'render/inline_embed_test.dart' as inline_embed_test;
 import 'selection/markup_formatter_test.dart' as markup_formatter_test;
@@ -62,6 +63,7 @@ void main() => group('Unit', () {
       horizontal_pan_test.main();
       embed_offset_map_test.main();
       inline_embed_test.main();
+      embed_paint_test.main();
       selection_test.main();
       markup_formatter_test.main();
       source_formatter_test.main();

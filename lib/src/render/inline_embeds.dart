@@ -126,13 +126,21 @@ final class MarkdownEmbedSpan extends PlaceholderSpan {
 /// a model rebuild and on its own dispose. A block painter that rebuilds its
 /// paragraphs on every layout (lists, tables) releases the old ones first, so
 /// an embed never outlives the paragraph that reserved room for it.
+///
+/// The host also hears every embed it owns: embeds come and go with those
+/// layouts, so the host is the one place that sees each of them appear and
+/// disappear, and the one place that can keep the subscriptions in step. It
+/// only forwards the signal ([onSignal]); what to repaint is the painter's
+/// business.
 @meta.internal
 final class MarkdownEmbedHost {
   /// Creates a host that resolves through [resolver] for a display of
-  /// [devicePixelRatio].
+  /// [devicePixelRatio], and calls [onSignal] whenever an embed it owns says
+  /// that what it paints has changed.
   MarkdownEmbedHost({
     required this.resolver,
     required this.devicePixelRatio,
+    this.onSignal,
   });
 
   /// Where every embed comes from.
@@ -141,8 +149,14 @@ final class MarkdownEmbedHost {
   /// Pixels per logical pixel; embeds are sized to whole device pixels.
   final double devicePixelRatio;
 
+  /// Called, with nothing else, when an owned embed signals a change.
+  final VoidCallback? onSignal;
+
   // Identity, not equality: an embed implementation is free to define `==`.
   final Set<MarkdownInlineEmbed> _live = Set<MarkdownInlineEmbed>.identity();
+
+  /// Whether the host owns no embed.
+  bool get isEmpty => _live.isEmpty;
 
   /// A new embed for [target], or null when the resolver does not know it.
   /// The host owns the result.
@@ -151,7 +165,7 @@ final class MarkdownEmbedHost {
     MarkdownInlineEmbedMetrics metrics,
   ) {
     final embed = resolver.resolve(target, metrics);
-    if (embed != null) _live.add(embed);
+    if (embed != null && _live.add(embed)) embed.addListener(_forward);
     return embed;
   }
 
@@ -161,7 +175,7 @@ final class MarkdownEmbedHost {
     if (text == null || _live.isEmpty) return;
     text.visitChildren((span) {
       if (span is MarkdownEmbedSpan && _live.remove(span.embed)) {
-        span.embed.dispose();
+        _dispose(span.embed);
       }
       return true;
     });
@@ -172,8 +186,22 @@ final class MarkdownEmbedHost {
     if (_live.isEmpty) return;
     final embeds = List<MarkdownInlineEmbed>.of(_live);
     _live.clear();
-    for (final embed in embeds) {
-      embed.dispose();
+    embeds.forEach(_dispose);
+  }
+
+  /// Sets [MarkdownInlineEmbed.visible] on every embed still held.
+  void setAllVisible({required bool visible}) {
+    for (final embed in _live) {
+      if (embed.visible != visible) embed.visible = visible;
     }
   }
+
+  // Unsubscribed first: an embed is free to signal from its dispose, and a
+  // painter that is being torn down has nothing left to repaint.
+  void _dispose(MarkdownInlineEmbed embed) {
+    embed.removeListener(_forward);
+    embed.dispose();
+  }
+
+  void _forward() => onSignal?.call();
 }

@@ -11,11 +11,11 @@ canvas via one `RenderBox` and a list of `BlockPainter`s — **no widget per blo
 
 | File | Contents |
 |---|---|
-| `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, private `_distanceToRect`. |
+| `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, `PannedContent` (`@meta.internal`: the pan transform a block gives the live embed pass), private `_distanceToRect`. |
 | `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle, revealed})` → `TextSpan` (a `MarkdownParagraphSpan` when the paragraph has a `\|\|spoiler\|\|`); the `TextPainter` extension `MarkdownSpoilerPainter`; private `_buildTapRecognizer` (link taps from `span.extra['url']`). |
 | `spoiler_particle_field.dart` / `spoiler_particle_tile.dart` | `SpoilerParticleField` (the dust simulation) and `SpoilerParticleTile` / `SpoilerParticleTiles` (the live tile image and its per-process registry). |
 | `spoiler_phase.dart` | `SpoilerPhase` (`$Hidden` / `$Revealing` / `$Revealed`) — what the painter draws for the document's spoilers. |
-| `inline_embeds.dart` | `MarkdownEmbedSpan` (the placeholder span of one embed) and `MarkdownEmbedHost` (owns the embeds a painter resolved), both `@meta.internal`. |
+| `inline_embeds.dart` | `MarkdownEmbedSpan` (the placeholder span of one embed) and `MarkdownEmbedHost` (owns the embeds a painter resolved and forwards their signals), both `@meta.internal`. |
 | `embed_offset_map.dart` | `MarkdownEmbedOffsets`: the map between painter text offsets and rendered text offsets (`@meta.internal`). |
 | `markdown_painter.dart` | `MarkdownPainter` (`@meta.internal`) — the orchestrator. |
 | `markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface`; plus `_paintNothing`. |
@@ -55,7 +55,9 @@ from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
   painters. Pannable blocks always paint live afterward (each applies its own
   clip + translate). The cache is nulled only by `update` (model/theme change) and
   `invalidateLayout` (system fonts). An overflow guard stops emitting blocks past
-  the viewport height.
+  the viewport height. Inline embeds are a further live pass (see
+  [Inline embeds](#inline-embeds)): after the picture and the pannable blocks,
+  before the above-content selection tint.
 - **Hit-testing** (`_blockIndexForDy`): **binary search** over `_blockOffsets`.
   `positionForLocal` maps a content-local offset → `(sourceBlockIndex, textOffset)`
   (null if the hit block isn't a `SelectableBlockPainter`). `handleEvent` routes
@@ -76,10 +78,8 @@ from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
 `MarkdownInlineEmbedResolver`, `MarkdownInlineEmbedTarget` (`scheme`, `id`,
 `alt`) and `MarkdownInlineEmbedMetrics` (`fontSize`, `ascent`, `descent`,
 `devicePixelRatio`, and `extent`, the size rule). The package knows no
-implementation; a host adapts its own asset type to it. Painting the embed and
-the public `MarkdownWidget` parameter are not in this layer yet: a resolver
-reaches `MarkdownRenderObject` / `MarkdownPainter` through `embedResolver` and
-`devicePixelRatio`.
+implementation; a host adapts its own asset type to it and hands it over as
+`MarkdownWidget.embedResolver` (the device pixel ratio comes from `MediaQuery`).
 
 - **Room.** `paragraphFromMarkdownSpans(embeds: …)` turns an image span whose
   `src` has a scheme the resolver answers for into a `MarkdownEmbedSpan`: a
@@ -102,6 +102,35 @@ reaches `MarkdownRenderObject` / `MarkdownPainter` through `embedResolver` and
   model or theme, system fonts, a new resolver or pixel ratio) and on
   `dispose`. `$List` and `$Table` build their paragraphs on every layout, so
   they release the previous ones first.
+- **Paint.** `MarkdownPainter.paintEmbeds` is the third pass, run by the render
+  object right after `_painter.paint` and before the above-content tint. It walks
+  each block's text fragments, reads `TextPainter.inlinePlaceholderBoxes` through
+  `MarkdownEmbedOffsets`, and calls `embed.paint(canvas, span.paintRectFor(box),
+  context)`. The context's tint is the colour of the text the embed sits in (its
+  span's, else the paragraph's); its opacity is `embedOpacityAt(rect)` (0 under a
+  hidden spoiler, the ripple's progress while revealing, 1 elsewhere). The
+  placeholder paints nothing into the picture. A block that pans (`PannedContent`,
+  the table) is clipped and translated first, so an embed moves with its cell.
+  A selection tints an embed it covers *over* the embed, because an opaque embed
+  hides the under-glyph tint; blocks that already tint above the picture are left
+  to that pass.
+- **Invalidation.** `MarkdownEmbedHost` subscribes to each embed it resolves and
+  unsubscribes before it disposes it. A signal reaches the render object, which
+  coalesces the frame's signals into one `markNeedsPaint`
+  (`_embedPaintPending`, cleared by the paint that answers it). A signal never
+  re-records the glyph picture and never lays out.
+- **Visibility.** After each layout (not during paint: an embed may react to the
+  change by scheduling a repaint) `syncEmbedVisibility` sets
+  `MarkdownInlineEmbed.visible` to whether the embed's block is inside the
+  painted height, the guard the picture uses; `detach` sets it false before the
+  embeds are disposed and `attach` sets it again. The fork adds no other pause
+  layer: the asset cache owns the global ones. Note that "painted height" is the
+  render object's own size: a message that a list scrolls partly out of view is
+  still visible here, and one the list drops is detached.
+- **Builders.** A list or table a theme `builder` returns is given the host by
+  `MarkdownPainter` (they build their paragraphs at layout), so a
+  `$ScrollableTable` has embeds too. A custom painter that builds its paragraph
+  itself has no host to ask: the host is internal, so it shows alt text.
 - **Offsets.** The placeholder is one U+FFFC in the painter text and its alt
   text is the span text in `renderedText`. `SelectableTextBlock` and
   `MultiPainterSelectable` convert through `MarkdownEmbedOffsets` (identity for
@@ -354,6 +383,8 @@ Public (in `flutter_md.dart`'s `show` list): the framework
   backgrounds) so the tint stays visible there. Drags/streaming/pan never rebuild
   the glyph cache. Color = `controller.selectionColor ?? _kSelectionColor`
   (`0x552196F3`). Pannable-block highlights are clipped to the block viewport.
+- **An embed never re-records the picture per frame.** Embeds paint in a live
+  pass; a signal repaints, a change of resolver or pixel ratio rebuilds.
 - **Spoilers never re-record per frame.** At most two glyph pictures exist per
   size (hidden, revealed); the fill pass and the ripple are live passes above
   them, and a reveal swaps pictures without laying out.

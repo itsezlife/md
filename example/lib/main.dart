@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 
 import 'tabs/chat_tab.dart';
+import 'tabs/embed_tab.dart';
 import 'tabs/highlight_tab.dart';
 import 'tabs/lorem_tab.dart';
 
@@ -112,7 +113,7 @@ class HomeScreen extends StatefulWidget {
 /// State for widget HomeScreen.
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 4, vsync: this);
+  late final TabController _tabs = TabController(length: 5, vsync: this);
 
   @override
   void dispose() {
@@ -142,6 +143,7 @@ class _HomeScreenState extends State<HomeScreen>
           Tab(text: 'Selection', icon: Icon(Icons.text_fields)),
           Tab(text: 'Chat', icon: Icon(Icons.chat_bubble_outline)),
           Tab(text: 'Highlight', icon: Icon(Icons.code)),
+          Tab(text: 'Embeds', icon: Icon(Icons.bubble_chart_outlined)),
         ],
       ),
     ),
@@ -153,6 +155,7 @@ class _HomeScreenState extends State<HomeScreen>
           LoremTab(),
           ChatTab(),
           HighlightTab(),
+          EmbedTab(),
         ],
       ),
     ),

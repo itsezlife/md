@@ -9,6 +9,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'package:meta/meta.dart' as meta show internal;
+
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
@@ -88,7 +90,7 @@ final class _TablePanState {
 /// For clip + pan, use [BlockPainter$ScrollableTable].
 class BlockPainter$Table
     with ParagraphGestureHandler, MultiPainterSelectable
-    implements BlockPainter {
+    implements BlockPainter, PannedContent {
   /// Creates a table painter for the [header] row and data [rows], with
   /// per-column [alignments], styled by [theme].
   BlockPainter$Table({
@@ -160,7 +162,12 @@ class BlockPainter$Table
   final MarkdownThemeData theme;
 
   /// Where the cells' inline embeds come from, if the body has any.
-  final MarkdownEmbedHost? inlineEmbeds;
+  ///
+  /// A painter a theme `builder` made has no way to be given the host, which
+  /// is internal; `MarkdownPainter` sets it, before the first layout, on one
+  /// that has none. Nothing else writes it.
+  @meta.internal
+  MarkdownEmbedHost? inlineEmbeds;
 
   /// The number of columns in the table.
   final int columns;
@@ -522,19 +529,25 @@ class BlockPainter$Table
   }
 
   @override
+  bool pushPanTransform(Canvas canvas, double offset) {
+    final pan = _pan;
+    if (pan == null || !pan.canPan) return false;
+    canvas
+      ..save()
+      ..clipRect(Rect.fromLTWH(0, offset, _size.width, _size.height))
+      ..translate(pan.paintTranslationX(theme.textDirection), 0);
+    return true;
+  }
+
+  @override
   void paint(Canvas canvas, Size size, double offset) {
     // If the width is less than required do not paint anything.
     if (columns < 1) return;
 
     final pan = _pan;
-    final panning = pan != null && pan.canPan;
-    if (panning) {
-      canvas.save();
-      canvas.clipRect(Rect.fromLTWH(0, offset, _size.width, _size.height));
-      canvas.translate(pan.paintTranslationX(theme.textDirection), 0);
-    }
+    final panning = pushPanTransform(canvas, offset);
 
-    final paintWidth = panning ? pan.contentWidth : _size.width;
+    final paintWidth = panning ? pan!.contentWidth : _size.width;
     double currentY = offset;
 
     for (int r = 0; r < _cellPainters.length; r++) {

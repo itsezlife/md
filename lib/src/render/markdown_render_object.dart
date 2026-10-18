@@ -41,7 +41,9 @@ class MarkdownRenderObject extends RenderBox
           embedResolver: embedResolver,
           devicePixelRatio: devicePixelRatio,
         ) {
-    _painter.onPaintersRebuilt = _onPaintersRebuilt;
+    _painter
+      ..onPaintersRebuilt = _onPaintersRebuilt
+      ..onEmbedSignal = _onEmbedSignal;
   }
 
   /// Painter for rendering markdown content.
@@ -145,6 +147,31 @@ class MarkdownRenderObject extends RenderBox
   }
 
   bool _disposed = false;
+
+  // --- Inline embeds ---
+
+  /// Whether an embed signal already asked for the next paint.
+  ///
+  /// Every embed of a body signals on its own clock; many may fire in one
+  /// frame, and each would otherwise walk up to the repaint boundary again.
+  /// The first signal asks, the rest wait for the paint that answers them
+  /// (the precedent is Desktop's once-per-message flag).
+  bool _embedPaintPending = false;
+
+  int _embedPaintRequests = 0;
+
+  /// How many paints embed signals asked for. Exposed for tests asserting that
+  /// signals within one frame coalesce.
+  @visibleForTesting
+  int get debugEmbedPaintRequests => _embedPaintRequests;
+
+  void _onEmbedSignal() {
+    if (_disposed || !attached || _embedPaintPending) return;
+    _embedPaintPending = true;
+    _embedPaintRequests++;
+    // A repaint only: the glyph picture is cached and nothing is laid out.
+    markNeedsPaint();
+  }
 
   void _onPaintersRebuilt() {
     _stopHorizontalPanGesture();
@@ -683,6 +710,7 @@ class MarkdownRenderObject extends RenderBox
     if (controller != null && id != null) {
       controller.reportAtomicRanges(id, _painter.atomicRanges());
     }
+    _painter.syncEmbedVisibility(size);
     // Whether the document has a spoiler is only known once it is laid out.
     _syncFillTicks();
   }
@@ -836,6 +864,11 @@ class MarkdownRenderObject extends RenderBox
   @override
   void attach(PipelineOwner owner) {
     super.attach(owner);
+    if (hasSize) {
+      // Back in the tree after a detach, which hid the embeds.
+      _painter.syncEmbedVisibility(size);
+      if (_painter.hasEmbeds) markNeedsPaint();
+    }
     _ballisticTicker?.muted = !_tickerModeEnabled || !attached;
     _rippleTicker?.muted = !_tickerModeEnabled || !attached;
     _syncFillTicks();
@@ -887,6 +920,10 @@ class MarkdownRenderObject extends RenderBox
   @override
   @protected
   void detach() {
+    // Before the embeds can be disposed: one that is gone from the tree has
+    // nothing to show, and stops ticking.
+    _painter.hideEmbeds();
+    _embedPaintPending = false;
     _stopBallistic();
     _ballisticTicker?.muted = true;
     // A muted ticker would strand the ripple half-drawn; end it revealed.
@@ -956,6 +993,11 @@ class MarkdownRenderObject extends RenderBox
       _spoilerMotion ? _spoilerController?.fillFrame : null,
     );
     _painter.paint(canvas, size);
+
+    // Embeds sit over the glyph picture, under the above-content tint; the
+    // painter tints the ones a selection covers, as that pass would.
+    _embedPaintPending = false;
+    _painter.paintEmbeds(canvas, size, rangeOf, _highlightPaint);
 
     if (controller != null && id != null) {
       _painter.paintHighlight(

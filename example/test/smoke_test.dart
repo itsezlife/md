@@ -3,6 +3,7 @@ import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:md_example/main.dart';
 import 'package:md_example/tabs/chat_tab.dart';
+import 'package:md_example/tabs/embed_tab.dart';
 import 'package:md_example/tabs/highlight_tab.dart';
 import 'package:md_example/tabs/lorem_tab.dart';
 
@@ -74,6 +75,21 @@ void main() {
 
     await openTab(tester, 'Editor');
     expect(find.byType(EditorTab), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Embeds tab animates its dots without exceptions', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await tester.tap(find.text('Embeds'));
+    // The dots tick forever, so the page never settles.
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(EmbedTab), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.tap(find.text('Editor'));
+    await tester.pump(const Duration(milliseconds: 500));
     expect(tester.takeException(), isNull);
   });
 
