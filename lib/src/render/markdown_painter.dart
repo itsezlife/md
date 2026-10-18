@@ -601,6 +601,24 @@ class MarkdownPainter {
     return const <Rect>[];
   }
 
+  /// The rendered ranges of every block that a selection boundary never
+  /// splits (the alt text of each inline embed), by source block index.
+  /// Empty when no block has an embed. Only valid after [layout].
+  Map<int, List<TextRange>> atomicRanges() {
+    Map<int, List<TextRange>>? out;
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final painter = _blockPainters[i];
+      final ranges = switch (painter) {
+        SelectableTextBlock() => painter.atomicRanges,
+        MultiPainterSelectable() => painter.atomicRanges,
+        _ => const <TextRange>[],
+      };
+      if (ranges.isEmpty) continue;
+      (out ??= <int, List<TextRange>>{})[_sourceIndices[i]] = ranges;
+    }
+    return out ?? const <int, List<TextRange>>{};
+  }
+
   /// Update the painter with new values.
   /// If the values are the same,
   /// no update is required and the method returns false.

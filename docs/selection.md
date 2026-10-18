@@ -147,23 +147,39 @@ A resolved image span is one U+FFFC code unit in the `TextPainter`'s text while
 `markdownBlockRenderedText` has its alt text (any number of code units). The
 block painter mixins bridge the two with `MarkdownEmbedOffsets`, so
 `renderedText`, `positionAndAffinityForLocal`, `caretRectFor`, `boxesForRange`
-and `wordBoundaryForLocal` still speak rendered offsets; extraction and the
-controller never learn about embeds. The alt text is **atomic**:
+and `wordBoundaryForLocal` still speak rendered offsets; extraction never reads
+a painter. The alt text is **atomic**, and the controller enforces it on the
+range, not on the pointer:
 
-- A pointer over an embed (its reserved room or the square it is drawn into)
-  resolves to the nearer edge of its alt text, never inside it, so a drag ends
-  on one side of the embed or the other.
-- A range with a boundary inside an alt text is grown outward when highlighted
-  (`boxesForRange`): a start snaps to the embed's start, an end to its end. A
-  word select (double click / tap) on the embed selects the whole alt text.
-- `inlineSpanAt` / `ParagraphGestureHandler.hitTestInlineSpanWithPointerEvent`
-  return the `MarkdownEmbedSpan` over the embed's box, including the half
-  nearer the text after it, where the painter alone would answer with the next
-  span.
-- Copy reads the model, so a selection over an embed copies its alt text. A
-  range handed to the controller with an offset *inside* an alt text is not
-  snapped by extraction (it copies a partial alt); pointer selection never makes
-  one.
+- **Atomic ranges.** After each layout the surface reports, per block, the
+  rendered range of every alt text of two or more code units
+  (`MarkdownSelectionController.reportAtomicRanges`, internal; fed by
+  `SelectableTextBlock.atomicRanges` / `MultiPainterSelectable.atomicRanges`).
+  The controller keeps them per document until the document's model changes or
+  it is removed, so they hold while the surface is unmounted (list
+  virtualization). An alt of one code unit or none has no inside to split.
+- **Normalisation.** For a non-collapsed selection, the first boundary of the
+  range (in reading order) strictly inside an alt moves down to the alt's
+  start, and the last boundary strictly inside one moves up to its end. This
+  applies to `selectedContent()` / `getText()` / `MarkdownSelectedContent`
+  (including `renderedRange`), `rangeFor` (highlight, `selectionBoxes`) and the
+  caret rects the handles are placed at. A range set programmatically with an
+  offset inside an alt therefore never copies a partial alt. A collapsed
+  selection selects nothing and is not snapped.
+- **Pointer.** A point over an embed (the room it reserved or the square it is
+  drawn into, which pokes out above and below) resolves to an offset *inside*
+  its alt text in either half, so the embed takes part in a drag whichever way
+  the drag goes: ending on it from the left takes it (end snaps up), ending on
+  it from the right takes it (start snaps down), and starting on it takes it
+  too. For an alt of one code unit the point resolves to the nearer edge.
+  Adjacent embeds are each whole. A word select (double click / tap) on an embed
+  selects its whole alt.
+- **Block highlight.** `boxesForRange` also snaps outward on its own, so a
+  block handed a range with an interior boundary draws the whole embed.
+- **Hit-testing.** `inlineSpanAt` /
+  `ParagraphGestureHandler.hitTestInlineSpanWithPointerEvent` return the
+  `MarkdownEmbedSpan` over the embed's box, including the half nearer the text
+  after it, where the painter alone would answer with the next span.
 
 ## `MarkdownSelectionScope` — gestures, keyboard, handles, toolbar
 

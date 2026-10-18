@@ -160,10 +160,12 @@ mixin SelectableTextBlock implements SelectableBlockPainter {
 
   @override
   (int, TextAffinity) positionAndAffinityForLocal(Offset local) {
-    final inner = local - selectionOrigin;
-    final (offset, affinity) = _embedAwarePosition(selectionPainter, inner);
-    return (_offsets.toRendered(offset), affinity);
+    return _renderedPosition(selectionPainter, local - selectionOrigin);
   }
+
+  /// The rendered ranges a selection boundary never splits: the alt text of
+  /// each inline embed in this block.
+  List<TextRange> get atomicRanges => _atomicRangesOf(_offsets, 0);
 
   @override
   Rect caretRectFor(int offset, TextAffinity affinity) {
@@ -272,13 +274,17 @@ mixin MultiPainterSelectable implements SelectableBlockPainter {
         (local.dx - fragment.origin.dx).clamp(0.0, fragment.painter.width);
     final dy =
         (local.dy - fragment.origin.dy).clamp(0.0, fragment.painter.height);
-    final (painterOffset, affinity) =
-        _embedAwarePosition(fragment.painter, Offset(dx, dy));
-    final offset = fragment.textStart +
-        fragment._offsets.toRendered(
-            painterOffset.clamp(0, fragment.painter.plainText.length));
-    return (offset, affinity);
+    final (rendered, affinity) =
+        _renderedPosition(fragment.painter, Offset(dx, dy));
+    return (fragment.textStart + rendered.clamp(0, fragment.length), affinity);
   }
+
+  /// The rendered ranges a selection boundary never splits: the alt text of
+  /// each inline embed in this block.
+  List<TextRange> get atomicRanges => <TextRange>[
+        for (final fragment in fragments)
+          ..._atomicRangesOf(fragment._offsets, fragment.textStart),
+      ];
 
   @override
   Rect caretRectFor(int offset, TextAffinity affinity) {
@@ -384,28 +390,43 @@ mixin MultiPainterSelectable implements SelectableBlockPainter {
   }
 }
 
-/// The painter offset and affinity at [local], in [painter]'s own coordinates.
+/// The rendered offset and affinity at [local], a point in [painter]'s own
+/// coordinates.
 ///
-/// Over an embed it is the embed's nearer edge, never past it: the painter
-/// would answer with an edge of the one-unit placeholder as well, but only
-/// inside the room it reserved, and not in the part of the embed that pokes out
-/// above and below it.
-(int, TextAffinity) _embedAwarePosition(TextPainter painter, Offset local) {
-  final entry = MarkdownEmbedOffsets.of(painter).entryAt(painter, local);
+/// Over an embed (the room it reserved or the square it is drawn into, which
+/// pokes out above and below) the offset is *inside* its alt text, whichever
+/// half of the embed the point is in, so the embed takes part in the selection
+/// whichever way the drag goes: the selection snaps a first boundary down to
+/// the alt's start and a last boundary up to its end. An alt of fewer than two
+/// code units has no inside, and the point resolves to the nearer edge.
+(int, TextAffinity) _renderedPosition(TextPainter painter, Offset local) {
+  final offsets = MarkdownEmbedOffsets.of(painter);
+  final entry = offsets.entryAt(painter, local);
   if (entry == null) {
     final position = painter.getPositionForOffset(local);
-    return (position.offset, position.affinity);
+    return (offsets.toRendered(position.offset), position.affinity);
+  }
+  if (entry.alt.length >= 2) {
+    return (entry.renderedStart + 1, TextAffinity.downstream);
   }
   final box = painter.inlinePlaceholderBoxes![entry.placeholderIndex];
-  final rect = box.toRect();
-  final nearIsLeft = local.dx < rect.center.dx;
-  final startsAtLeft = box.direction == TextDirection.ltr;
-  final before = nearIsLeft == startsAtLeft;
-  return (
-    before ? entry.painterStart : entry.painterStart + 1,
-    before ? TextAffinity.downstream : TextAffinity.upstream,
-  );
+  final nearIsLeft = local.dx < box.toRect().center.dx;
+  final before = nearIsLeft == (box.direction == TextDirection.ltr);
+  return before
+      ? (entry.renderedStart, TextAffinity.downstream)
+      : (entry.renderedEnd, TextAffinity.upstream);
 }
+
+/// The alt text ranges of [offsets], moved [shift] code units later.
+List<TextRange> _atomicRangesOf(MarkdownEmbedOffsets offsets, int shift) =>
+    <TextRange>[
+      for (final entry in offsets.entries)
+        if (entry.alt.length >= 2)
+          TextRange(
+            start: shift + entry.renderedStart,
+            end: shift + entry.renderedEnd,
+          ),
+    ];
 
 /// The word range, in rendered-text offsets, at [local] in [painter]. An embed
 /// is one word: its whole alt text.

@@ -242,8 +242,28 @@ void main() {
       expect(block.painter.plainText, 'a ￼ b');
     });
 
-    test('a position on the embed lands on the nearer edge of its alt', () {
+    test('a position on the embed lands inside its alt, in either half', () {
       final block = embedded();
+      final box = _layoutBox(block, 0);
+      // The selection normalises the boundary; the block only has to say the
+      // pointer is over the embed, so the embed is in a drag either way.
+      for (final point in <Offset>[
+        box.centerLeft + const Offset(2, 0),
+        box.centerRight - const Offset(2, 0),
+        // The square pokes out above the room the paragraph reserved.
+        Offset(box.center.dx + 3, _paintRect(block, 0).top + 0.2),
+      ]) {
+        final (offset, _) = block.positionAndAffinityForLocal(point);
+        expect(offset, greaterThan(2), reason: '$point');
+        expect(offset, lessThan(5), reason: '$point');
+      }
+    });
+
+    test('an alt of one code unit has no inside: the nearer edge', () {
+      final block = _paragraph(
+        'a ![x](emoji:1) b',
+        resolver: FakeInlineEmbedResolver(),
+      );
       final box = _layoutBox(block, 0);
       expect(
         block.positionAndAffinityForLocal(box.centerLeft + const Offset(2, 0)),
@@ -251,15 +271,22 @@ void main() {
       );
       expect(
         block
-            .positionAndAffinityForLocal(
-              box.centerRight - const Offset(2, 0),
-            )
+            .positionAndAffinityForLocal(box.centerRight - const Offset(2, 0))
             .$1,
-        5,
+        3,
       );
-      // The square pokes out above the room the paragraph reserved.
-      final above = Offset(box.center.dx + 3, _paintRect(block, 0).top + 0.2);
-      expect(block.positionAndAffinityForLocal(above).$1, 5);
+      expect(block.atomicRanges, isEmpty);
+    });
+
+    test('the atomic ranges are the alt texts', () {
+      final block = _paragraph(
+        'a ![xy](emoji:1) b ![zzz](emoji:2)',
+        resolver: FakeInlineEmbedResolver(),
+      );
+      expect(block.atomicRanges, const <TextRange>[
+        TextRange(start: 2, end: 4),
+        TextRange(start: 7, end: 10),
+      ]);
     });
 
     test('positions around the embed map through the alt', () {
@@ -335,15 +362,18 @@ void main() {
   });
 
   group('inline embed: alt text is atomic through the controller', () {
+    // "a " is 26px of Ahem; the 16px embed spans x 26..42, its near half
+    // 26..34 and its far half 34..42; " b" follows.
     const source = 'a ![xyz](emoji:1) b';
 
-    Future<(MarkdownSelectionController, FakeInlineEmbedResolver)> pump(
-      WidgetTester tester,
-    ) async {
+    Future<MarkdownSelectionController> pump(
+      WidgetTester tester, {
+      String text = source,
+    }) async {
       final resolver = FakeInlineEmbedResolver();
       final controller = MarkdownSelectionController()
         ..setDocuments(<MarkdownDocumentRef>[
-          MarkdownDocumentRef(id: 'd', model: Markdown.fromString(source)),
+          MarkdownDocumentRef(id: 'd', model: Markdown.fromString(text)),
         ]);
       addTearDown(controller.dispose);
       await tester.pumpWidget(
@@ -356,7 +386,7 @@ void main() {
                 child: SizedBox(
                   width: 400,
                   child: _EmbedBody(
-                    markdown: Markdown.fromString(source),
+                    markdown: Markdown.fromString(text),
                     resolver: resolver,
                     controller: controller,
                     documentId: 'd',
@@ -367,43 +397,151 @@ void main() {
           ),
         ),
       );
-      return (controller, resolver);
+      return controller;
     }
 
-    Future<void> drag(WidgetTester tester, Offset from, Offset to) async {
-      final g = await tester.startGesture(from, kind: PointerDeviceKind.mouse);
+    Future<void> drag(WidgetTester tester, double from, double to) async {
+      final top = tester.getTopLeft(find.byType(_EmbedBody));
+      final g = await tester.startGesture(
+        top + Offset(from, 6),
+        kind: PointerDeviceKind.mouse,
+      );
       await tester.pump(const Duration(milliseconds: 100));
-      await g.moveTo(to);
+      await g.moveTo(top + Offset(to, 6));
       await tester.pump(const Duration(milliseconds: 100));
       await g.up();
       await tester.pumpAndSettle();
     }
 
+    MarkdownSelection range(int base, int extent) => MarkdownSelection(
+          base: MarkdownPosition(documentId: 'd', blockIndex: 0, offset: base),
+          extent:
+              MarkdownPosition(documentId: 'd', blockIndex: 0, offset: extent),
+        );
+
     testWidgets('copy of the whole body yields the alt text', (tester) async {
-      final (controller, _) = await pump(tester);
+      final controller = await pump(tester);
       controller.selectAll();
       expect(controller.getText(), 'a xyz b');
     });
 
-    testWidgets('a drag ending on the embed copies the whole alt',
+    for (final (name, to) in <(String, double)>[
+      ('near half', 30),
+      ('far half', 40),
+    ]) {
+      testWidgets(
+          'a drag ending in the $name of the embed copies the whole '
+          'alt', (tester) async {
+        final controller = await pump(tester);
+        await drag(tester, 1, to);
+        expect(controller.getText(), 'a xyz');
+        expect(controller.rangeFor('d', 0), const TextRange(start: 0, end: 5));
+      });
+
+      testWidgets(
+          'a drag from the right ending in the $name of the embed '
+          'copies the whole alt', (tester) async {
+        final controller = await pump(tester);
+        await drag(tester, 80, to);
+        expect(controller.getText(), 'xyz b');
+        expect(controller.rangeFor('d', 0), const TextRange(start: 2, end: 7));
+      });
+
+      testWidgets(
+          'a drag starting in the $name of the embed copies the whole '
+          'alt, to the right and to the left', (tester) async {
+        final controller = await pump(tester);
+        await drag(tester, to, 80);
+        expect(controller.getText(), 'xyz b');
+        await drag(tester, to, 1);
+        expect(controller.getText(), 'a xyz');
+      });
+    }
+
+    testWidgets('a drag that ends before the embed leaves it out',
         (tester) async {
-      final (controller, _) = await pump(tester);
-      final top = tester.getTopLeft(find.byType(_EmbedBody));
-      // "a " is 26px; the embed spans x 26..42. 40 is on its far half.
-      await drag(tester, top + const Offset(1, 6), top + const Offset(40, 6));
-      expect(controller.getText(), 'a xyz');
+      final controller = await pump(tester);
+      await drag(tester, 1, 10);
+      expect(controller.getText(), 'a');
+      await drag(tester, 80, 50);
+      expect(controller.getText(), 'b');
     });
 
-    testWidgets('a drag across the embed from its far side copies it whole',
+    testWidgets('adjacent embeds are each whole', (tester) async {
+      // Embeds at x 26..42 ("xy") and 42..58 ("zw"), then " b".
+      final controller =
+          await pump(tester, text: 'a ![xy](emoji:1)![zw](emoji:2) b');
+      await drag(tester, 1, 30);
+      expect(controller.getText(), 'a xy');
+      await drag(tester, 1, 50);
+      expect(controller.getText(), 'a xyzw');
+      await drag(tester, 34, 50);
+      expect(controller.getText(), 'xyzw');
+      await drag(tester, 50, 34);
+      expect(controller.getText(), 'xyzw');
+      await drag(tester, 50, 80);
+      expect(controller.getText(), 'zw b');
+    });
+
+    testWidgets('a range set from outside never copies a partial alt',
         (tester) async {
-      final (controller, _) = await pump(tester);
-      final top = tester.getTopLeft(find.byType(_EmbedBody));
-      await drag(tester, top + const Offset(80, 6), top + const Offset(30, 6));
+      final controller = await pump(tester);
+      // 'a xyz b': the alt is 2..5.
+      controller.selection = range(3, 7);
+      expect(controller.getText(), 'xyz b');
+      controller.selection = range(7, 3);
+      expect(controller.getText(), 'xyz b');
+      controller.selection = range(0, 4);
+      expect(controller.getText(), 'a xyz');
+      controller.selection = range(4, 0);
+      expect(controller.getText(), 'a xyz');
+      controller.selection = range(3, 4);
+      expect(controller.getText(), 'xyz');
+      expect(controller.rangeFor('d', 0), const TextRange(start: 2, end: 5));
+      controller.selection = range(1, 3);
+      expect(controller.getText(), ' xyz');
+      final content = controller.selectedContent();
+      expect(content.documents.single.blocks.single.text, ' xyz');
+      expect(content.documents.single.blocks.single.renderedRange,
+          const TextRange(start: 1, end: 5));
+    });
+
+    testWidgets('a boundary on the edge of the alt is left alone',
+        (tester) async {
+      final controller = await pump(tester);
+      controller.selection = range(2, 5);
+      expect(controller.getText(), 'xyz');
+      controller.selection = range(0, 2);
+      expect(controller.getText(), 'a ');
+      controller.selection = range(5, 7);
+      expect(controller.getText(), ' b');
+    });
+
+    testWidgets('a collapsed selection inside an alt selects nothing',
+        (tester) async {
+      final controller = await pump(tester);
+      controller.selection = range(3, 3);
+      expect(controller.getText(), '');
+    });
+
+    testWidgets('the selection stays whole once the embed is unmounted',
+        (tester) async {
+      final controller = await pump(tester);
+      controller.selection = range(3, 7);
+      await tester.pumpWidget(const SizedBox());
       expect(controller.getText(), 'xyz b');
     });
 
+    testWidgets('a new model forgets the ranges of the old one',
+        (tester) async {
+      final controller = await pump(tester);
+      controller.putDocument('d', Markdown.fromString('a xyz b'));
+      controller.selection = range(3, 7);
+      expect(controller.getText(), 'yz b');
+    });
+
     testWidgets('a double click on the embed selects its alt', (tester) async {
-      final (controller, _) = await pump(tester);
+      final controller = await pump(tester);
       final top = tester.getTopLeft(find.byType(_EmbedBody));
       final at = top + const Offset(34, 6);
       final first =

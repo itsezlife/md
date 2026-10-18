@@ -444,6 +444,14 @@ class MarkdownRenderObject extends RenderBox
     // Set the size of the render box to match the painter's size.
     size =
         constraints.constrain(_painter.layout(maxWidth: constraints.maxWidth));
+    // The controller keeps these for as long as the document lives, so a
+    // selection is whole for copy and highlight while this surface is
+    // unmounted too.
+    final controller = _controller;
+    final id = _documentId;
+    if (controller != null && id != null) {
+      controller.reportAtomicRanges(id, _painter.atomicRanges());
+    }
   }
 
   @override
