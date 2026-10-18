@@ -19,6 +19,7 @@ import 'render/embed_paint_test.dart' as embed_paint_test;
 import 'render/emoji_run_test.dart' as emoji_run_test;
 import 'render/horizontal_pan_test.dart' as horizontal_pan_test;
 import 'render/inline_embed_test.dart' as inline_embed_test;
+import 'render/selection_highlight_test.dart' as selection_highlight_test;
 import 'selection/markup_formatter_test.dart' as markup_formatter_test;
 import 'selection/selection_autoscroll_target_test.dart'
     as selection_autoscroll_target_test;
@@ -71,6 +72,7 @@ void main() => group('Unit', () {
       inline_embed_test.main();
       embed_paint_test.main();
       emoji_run_test.main();
+      selection_highlight_test.main();
       selection_test.main();
       markup_formatter_test.main();
       source_formatter_test.main();

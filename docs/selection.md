@@ -190,7 +190,10 @@ range, not on the pointer:
   Adjacent embeds are each whole. A word select (double click / tap) on an embed
   selects its whole alt.
 - **Block highlight.** `boxesForRange` also snaps outward on its own, so a
-  block handed a range with an interior boundary draws the whole embed.
+  block handed a range with an interior boundary draws the whole embed. The
+  rectangles are one per line, the line's height, whatever the line holds, and
+  the highlight is behind the embed, never over it (see
+  [rendering](rendering.md#selection-highlight)).
 - **Hit-testing.** `inlineSpanAt` /
   `ParagraphGestureHandler.hitTestInlineSpanWithPointerEvent` return the
   `MarkdownEmbedSpan` over the embed's box, including the half nearer the text
@@ -216,7 +219,9 @@ whether the document is hidden or revealed.
   selection over a hidden spoiler is drawn under the glyph picture and the dust
   stays over it (`spoiler_selection_test.dart` pins the order), as Telegram
   Android draws the selection before the text and its spoiler pass: the
-  selected patch shows through the particles, still hidden.
+  selected patch shows through the particles, still hidden. It is the same
+  rectangle at every position (nothing is drawn over a hidden embed), so the
+  patch does not show where the emoji are (`selection_highlight_test.dart`).
 - **A tap on a hidden spoiler reveals.** The render object takes a pointer that
   goes down on a hidden spoiler instead of forwarding it to the blocks, so a link
   or mention under it does not activate (`onLinkTap` / `onMentionTap` stay

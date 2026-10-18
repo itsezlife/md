@@ -1013,11 +1013,6 @@ class MarkdownRenderObject extends RenderBox
     );
     _painter.paint(canvas, size);
 
-    // Embeds sit over the glyph picture, under the above-content tint; the
-    // painter tints the ones a selection covers, as that pass would.
-    _embedPaintPending = false;
-    _painter.paintEmbeds(canvas, size, rangeOf, _highlightPaint);
-
     if (controller != null && id != null) {
       _painter.paintHighlight(
         canvas,
@@ -1026,6 +1021,12 @@ class MarkdownRenderObject extends RenderBox
         aboveCachedContentOnly: true,
       );
     }
+
+    // Embeds are the last pass, over every highlight: a selection is behind an
+    // embed whichever block it is in, so no tint reaches one (an opaque embed
+    // shows as it is, and a hidden one is not betrayed by a patch of tint).
+    _embedPaintPending = false;
+    _painter.paintEmbeds(canvas, size);
 
     canvas.restore();
 

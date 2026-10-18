@@ -86,6 +86,11 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
   table fills). Pannable-block highlights are clipped to the block viewport.
   Drag/streaming/pan updates must not rebuild the glyph cache;
   `isRepaintBoundary => controller != null`. Preserve this if you touch paint.
+- **One highlight look.** A line's selection is one rectangle of the line's
+  height (`boxesForRange` uses `BoxHeightStyle.max` and joins the runs), behind
+  glyphs, emoji and embeds; the embeds pass is last and **nothing tints an
+  embed**; over a hidden spoiler the rectangle is the same at every position.
+  `test/render/selection_highlight_test.dart` reads pixels to pin it.
 - **Selection is controller-anchored on immutable models**, not on render objects,
   as `(documentId, blockIndex, renderedOffset)`. So selected text survives
   `ListView` disposal (scrolled-off chat messages). A block's on-screen offset
