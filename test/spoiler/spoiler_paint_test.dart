@@ -6,6 +6,8 @@ import 'package:flutter_md/src/render/markdown_painter.dart';
 import 'package:flutter_md/src/render/spoiler_phase.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../render/fake_inline_embed_resolver.dart';
+
 const _source = 'before ||secret words|| after\n\nplain second paragraph';
 
 MarkdownPainter _painter(
@@ -162,6 +164,31 @@ void main() {
 
       painter.setSpoilerPhase(const SpoilerPhase$Revealed());
       expect(painter.embedOpacityAt(inside), 1);
+    });
+  });
+
+  group('a spoiler around an inline embed', () {
+    test('the spoiler covers the embed and its opacity follows the phase', () {
+      final painter = MarkdownPainter(
+        markdown: Markdown.fromString('a ||b ![x](emoji:1) c|| d'),
+        theme: MarkdownThemeData(textStyle: const TextStyle(fontSize: 14)),
+        embedResolver: FakeInlineEmbedResolver(),
+      )..layout(maxWidth: 300);
+      addTearDown(painter.dispose);
+      // Ahem: "a " is two 14px glyphs, "b " two more, then the embed.
+      final spoiler = painter.spoilerRects.single;
+      final embedBox = Rect.fromLTWH(spoiler.left + 28, spoiler.top, 16, 16);
+
+      expect(spoiler.width, greaterThan(embedBox.right - spoiler.left));
+
+      painter.setSpoilerPhase(const SpoilerPhase$Hidden());
+      expect(painter.embedOpacityAt(embedBox), 0);
+      painter.setSpoilerPhase(
+        const SpoilerPhase$Revealing(progress: 0.5, origin: Offset.zero),
+      );
+      expect(painter.embedOpacityAt(embedBox), 0.5);
+      painter.setSpoilerPhase(const SpoilerPhase$Revealed());
+      expect(painter.embedOpacityAt(embedBox), 1);
     });
   });
 
