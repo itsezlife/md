@@ -540,7 +540,7 @@ void main() {
       addTearDown(spoilers.dispose);
       await tester.pumpWidget(_body([('a', _plain)], spoilers));
 
-      spoilers.reveal('a'); // what the viewport does when a selection enters
+      spoilers.reveal('a'); // a host reveal with no touch point (an API call)
       await tester.pump();
 
       final phase = _painterOf(tester, 'a').spoilerPhase;

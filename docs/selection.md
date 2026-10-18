@@ -212,7 +212,11 @@ whether the document is hidden or revealed.
   selection to uncover what it covers calls
   `MarkdownSpoilerController.reveal(documentId)` when the range enters a hidden
   spoiler (no origin: the ripple starts from the middle of the document's
-  spoilers). Nothing re-hides when the selection is dismissed.
+  spoilers). Nothing re-hides when the selection is dismissed. The tint of a
+  selection over a hidden spoiler is drawn under the glyph picture and the dust
+  stays over it (`spoiler_selection_test.dart` pins the order), as Telegram
+  Android draws the selection before the text and its spoiler pass: the
+  selected patch shows through the particles, still hidden.
 - **A tap on a hidden spoiler reveals.** The render object takes a pointer that
   goes down on a hidden spoiler instead of forwarding it to the blocks, so a link
   or mention under it does not activate (`onLinkTap` / `onMentionTap` stay

@@ -43,6 +43,7 @@ import 'spoiler/spoiler_paint_test.dart' as spoiler_paint_test;
 import 'spoiler/spoiler_particle_field_test.dart'
     as spoiler_particle_field_test;
 import 'spoiler/spoiler_particle_tile_test.dart' as spoiler_particle_tile_test;
+import 'spoiler/spoiler_selection_test.dart' as spoiler_selection_test;
 import 'spoiler/spoiler_widget_test.dart' as spoiler_widget_test;
 import 'theme/theme_test.dart' as theme_test;
 import 'widget/mention_paint_test.dart' as mention_paint_test;
@@ -89,6 +90,7 @@ void main() => group('Unit', () {
       spoiler_particle_field_test.main();
       spoiler_particle_tile_test.main();
       spoiler_dust_test.main();
+      spoiler_selection_test.main();
       spoiler_widget_test.main();
       spoiler_golden_test.main();
       line_clamp_test.main();
