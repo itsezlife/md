@@ -2556,6 +2556,42 @@ void main() {
       );
     });
 
+    testWidgets('an actionable mention shows the click (hand) cursor',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: MarkdownTheme(
+            data: MarkdownThemeData(
+              textStyle: const TextStyle(fontSize: 14),
+              onMentionTap: (_, __, ___) {},
+            ),
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: SizedBox(
+                width: 400,
+                child: MarkdownWidget(
+                    markdown: Markdown.fromString('[@someone](mention:7)')),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      final gesture =
+          await tester.createGesture(kind: PointerDeviceKind.mouse, pointer: 1);
+      await gesture.addPointer(location: Offset.zero);
+      addTearDown(gesture.removePointer);
+      await gesture.moveTo(
+          tester.getTopLeft(find.byType(MarkdownWidget)) + const Offset(8, 8));
+      await tester.pumpAndSettle();
+
+      expect(
+        RendererBinding.instance.mouseTracker.debugDeviceActiveCursor(1),
+        SystemMouseCursors.click,
+      );
+    });
+
     testWidgets('inert content keeps the default cursor', (tester) async {
       final md = Markdown.fromString('Not selectable');
       await tester.pumpWidget(MaterialApp(

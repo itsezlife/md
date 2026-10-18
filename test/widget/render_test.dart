@@ -9,6 +9,8 @@ Future<void> _pumpMarkdown(
   String source, {
   MarkdownThemeData? theme,
   void Function(String title, String url)? onLinkTap,
+  void Function(String scheme, String? id, String name)? onMentionTap,
+  TextDirection textDirection = TextDirection.ltr,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -18,6 +20,8 @@ Future<void> _pumpMarkdown(
               MarkdownThemeData(
                 textStyle: const TextStyle(fontSize: 14),
                 onLinkTap: onLinkTap,
+                onMentionTap: onMentionTap,
+                textDirection: textDirection,
               ),
           child: Center(
             child: SizedBox(
@@ -163,6 +167,79 @@ void main() {
       await tester.tapAt(topLeft + const Offset(8, 8));
       await tester.pumpAndSettle();
       expect(tapped, ['https://example.com']);
+    });
+
+    group('mention-class taps', () {
+      // The spans of the line, in order, each a fixed-width run in the test
+      // font; the tap lands in the middle of the run under test.
+      Future<void> tapRun(WidgetTester tester, double dx) async {
+        final topLeft = tester.getTopLeft(find.byType(MarkdownWidget));
+        await tester.tapAt(topLeft + Offset(dx, 8));
+        await tester.pumpAndSettle();
+      }
+
+      for (final (source, scheme, id, name) in [
+        ('[@abcdefgh](mention:42)', 'mention', '42', '@abcdefgh'),
+        ('[@abcdefgh](username:abc)', 'username', null, 'abc'),
+        ('[#abcdefgh](hashtag:tag)', 'hashtag', null, 'tag'),
+      ]) {
+        testWidgets('$scheme fires onMentionTap, never onLinkTap',
+            (tester) async {
+          final mentions = <(String, String?, String)>[];
+          final links = <String>[];
+          await _pumpMarkdown(
+            tester,
+            source,
+            onLinkTap: (title, url) => links.add(url),
+            onMentionTap: (s, i, n) => mentions.add((s, i, n)),
+          );
+          await tapRun(tester, 8);
+          expect(mentions, [(scheme, id, name)]);
+          expect(links, isEmpty);
+        });
+      }
+
+      testWidgets('an RTL paragraph fires onMentionTap too', (tester) async {
+        final mentions = <(String, String?, String)>[];
+        await _pumpMarkdown(
+          tester,
+          '[@abcdefgh](mention:42)',
+          textDirection: TextDirection.rtl,
+          onMentionTap: (s, i, n) => mentions.add((s, i, n)),
+        );
+        final size = _mdSize(tester);
+        final topLeft = tester.getTopLeft(find.byType(MarkdownWidget));
+        await tester.tapAt(topLeft + Offset(size.width - 8, 8));
+        await tester.pumpAndSettle();
+        expect(mentions, [('mention', '42', '@abcdefgh')]);
+      });
+
+      testWidgets('a plain link still fires onLinkTap only', (tester) async {
+        final mentions = <String>[];
+        final links = <String>[];
+        await _pumpMarkdown(
+          tester,
+          '[click me](https://example.com)',
+          onLinkTap: (title, url) => links.add(url),
+          onMentionTap: (s, i, n) => mentions.add(n),
+        );
+        await tapRun(tester, 8);
+        expect(links, ['https://example.com']);
+        expect(mentions, isEmpty);
+      });
+
+      testWidgets('a mention with no onMentionTap taps nothing',
+          (tester) async {
+        final links = <String>[];
+        await _pumpMarkdown(
+          tester,
+          '[@abcdefgh](mention:42)',
+          onLinkTap: (title, url) => links.add(url),
+        );
+        await tapRun(tester, 8);
+        expect(links, isEmpty);
+        expect(tester.takeException(), isNull);
+      });
     });
 
     testWidgets('updating markdown relayouts', (tester) async {

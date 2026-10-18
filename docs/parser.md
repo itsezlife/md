@@ -59,10 +59,15 @@ Supporting types:
 
 - **`MD$Span`** — `int start`, `int end`, `String text`, `MD$Style style`,
   `Map<String, Object?>? extra`. `extra` carries link/image metadata: `'type'`
-  (`link`/`image`), `'href'`/`'src'`, `'url'`, optional `'alt'`.
+  (`link`/`image`), `'href'`/`'src'`, `'url'`, optional `'alt'`. A link whose
+  destination scheme is `mention:`, `username:` or `hashtag:` is a
+  **mention-class** span instead (style `mention`, never `link`): `'type'` is
+  `mention`, `'scheme'` the lower-cased scheme, `'name'` the label (`mention:`)
+  or the destination (`username:` / `hashtag:`), and `'id'` is set for
+  `mention:` only. An image keeps `image` whatever its scheme.
 - **`MD$Style`** — a **bitmask**, `extension type const MD$Style(int value)
   implements int` (not an enum). Flags: `none`, `italic`, `bold`, `underline`,
-  `strikethrough`, `monospace`, `link`, `image`, `highlight`, `spoiler`. Combine
+  `strikethrough`, `monospace`, `link`, `image`, `highlight`, `spoiler`, `mention`. Combine
   with `|`/`.add`; query with `.contains`. The parser stores combined masks
   (e.g. bold|link).
 - **`MD$ListItem`** — `int indent` (leading-space **column width**, not a level

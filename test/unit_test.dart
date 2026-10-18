@@ -31,6 +31,7 @@ import 'selection/selection_registry_test.dart' as selection_registry_test;
 import 'selection/selection_test.dart' as selection_test;
 import 'selection/selection_widget_test.dart' as selection_widget_test;
 import 'theme/theme_test.dart' as theme_test;
+import 'widget/mention_paint_test.dart' as mention_paint_test;
 import 'widget/render_test.dart' as render_test;
 import 'widget/widget_test.dart' as widget_test;
 
@@ -47,6 +48,7 @@ void main() => group('Unit', () {
       nodes_test.main();
       highlight_test.main();
       theme_test.main();
+      mention_paint_test.main();
       horizontal_pan_test.main();
       embed_offset_map_test.main();
       inline_embed_test.main();

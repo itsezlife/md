@@ -151,8 +151,10 @@ can match down and up on the same span before firing its recognizer.
 `paragraphFromMarkdownSpans({spans, theme, textStyle})` → `TextSpan` — the public
 helper that applies `theme.spanFilter`, maps each `MD$Span` via
 `theme.textStyleFor(span.style)` (merged under `textStyle` if given), and attaches
-a link recognizer (from `theme.onLinkTap` + `span.extra['url']`). **Use it** for
-any custom text block so filters/styles/link-taps stay consistent.
+a link recognizer (from `theme.onLinkTap` + `span.extra['url']`) or, for a
+mention-class span, a mention recognizer (from `theme.onMentionTap` +
+`span.extra['scheme'/'id'/'name']`; `onLinkTap` never fires for it). **Use it**
+for any custom text block so filters/styles/link-taps stay consistent.
 
 ### Recipe: a custom block painter
 
@@ -249,7 +251,8 @@ Render-override hooks:
 Styling: `textStyle`, per-level `h1Style..h6Style` (+ cached `headingStyleFor`),
 `textStyleFor(MD$Style)` (cached mapping of the bitmask → bold/italic/underline/
 strikethrough/monospace + highlight/monospace backgrounds + link color),
-`linkColor`/`linkStyle`, `surfaceColor` (code/table/quote backgrounds),
+`linkColor`/`linkStyle`, `mentionColor` (mention-class text; follows
+`linkColor` when null, never underlined), `surfaceColor` (code/table/quote backgrounds),
 `highlightBackgroundColor`, `monospaceBackgroundColor`,
 `monospaceFontFamily`/`monospaceFontFamilyFallback` (platform-resolved by
 default — `monospace` on Android/Fuchsia/Linux/web, `Menlo` on iOS/macOS,
@@ -257,7 +260,7 @@ default — `monospace` on Android/Fuchsia/Linux/web, `Menlo` on iOS/macOS,
 for both inline `` `code` `` and fenced blocks, and `textStyle`'s own fallback
 chain is appended after it), `dividerColor`,
 `alertColors` (+ built-in GitHub palette fallback via `alertColorFor`),
-`textDirection`, `textScaler`, and `onLinkTap`.
+`textDirection`, `textScaler`, `onLinkTap`, and `onMentionTap`.
 
 ## Public vs internal
 

@@ -76,6 +76,7 @@ void main() {
           'image',
           'highlight',
           'spoiler',
+          'mention',
         ]),
       );
     });
