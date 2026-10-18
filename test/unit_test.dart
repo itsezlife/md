@@ -4,6 +4,7 @@ import 'highlight/highlight_test.dart' as highlight_test;
 import 'line_clamp/line_clamp_test.dart' as line_clamp_test;
 import 'nodes/nodes_test.dart' as nodes_test;
 import 'parser/block_test.dart' as block_test;
+import 'parser/dialect_conformance_test.dart' as dialect_conformance_test;
 import 'parser/edge_cases_test.dart' as edge_cases_test;
 import 'parser/gfm_test.dart' as gfm_test;
 import 'parser/golden_test.dart' as golden_test;
@@ -56,6 +57,7 @@ void main() => group('Unit', () {
       regression_test.main();
       streaming_test.main();
       golden_test.main();
+      dialect_conformance_test.main();
       nodes_test.main();
       highlight_test.main();
       theme_test.main();
