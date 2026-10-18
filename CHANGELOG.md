@@ -1,5 +1,55 @@
-## Unreleased
+## 0.4.1
 
+Before this release a body a chat host wrote showed backslashes: its writer
+escapes a label the way it escapes any text, and the parser kept the label as
+the raw source, so `[\#tag](hashtag:tag)` painted `\#tag`, `[a\*b](u)` painted
+`a\*b`, and a wiki-style url the writer had parenthesised
+(`[t](https://a.b/c_\(d\))`) opened `https://a.b/c_\(d\)`. A hidden spoiler
+also revealed on the release of any press, however long, and in a mode where a
+tap means something else. After it, a label and a destination read the way
+paragraph text and CommonMark read an escape, and the host decides when a tap on
+a spoiler is a reveal. The release tag is `v0.4.1`; depend on it by git ref as
+described under 0.3.0's *Fork status*.
+
+### Parser
+- **FIXED**: a link, mention-class or image label takes its backslash escapes
+  back, the set paragraph text takes (`` ! # $ ( ) * + - . = > [ \ ] _ ` { | } ~ ``),
+  so `[a\]b](u)` is the label `a]b`, `[\_x\_](mention:1)` has the text and the
+  `name` `_x_`, and `[\#tag](hashtag:tag)` is `#tag`. A backslash before any
+  other character stays. `MD$Span.start` / `end` are unchanged: a label span
+  still covers its whole `[..](..)` source, and `text` is the unescaped label.
+- **FIXED**: a link or image destination takes its escapes back the CommonMark
+  way, a backslash before any ASCII punctuation: `[t](a\)b)` has the url `a)b`,
+  not `a\)b`, and `<...>` is closed by the first `>` a backslash has not
+  escaped. The old reading was locked by `regression_test.dart` as a by-product
+  of the 0.1.0 scan for the closing parenthesis, not as a decision; it opened
+  every url the chat host's writer parenthesised (`https://a.b/c_(d)` is written
+  `c_\(d\)`) at a path that does not exist. A mention id (`mention:a\_b`) and an
+  image source are destinations and are unescaped alike.
+- **Breaking for consumers**: `extra['href']`, `extra['url']`, `extra['src']`
+  and `extra['id']` of a span, and the span's `text` and `extra['name']`, no
+  longer hold the backslashes of an escape. Code that stripped them itself must
+  stop: a url that really holds `\(` would lose its backslash a second time, and
+  a mention id that holds a backslash before punctuation now reads without it.
+  The parser golden is unchanged. The dialect conformance table gains the label
+  and destination rows, and its known gaps lose them.
+
+### Spoilers
+- **ADDED**: `MarkdownSpoilerController.tapReveals` (default true). While false a
+  tap on a hidden spoiler reveals nothing, and is still absorbed, so no link or
+  embed under the spoiler fires. A host in a message selection turns it off
+  there, as Telegram Android does (`ChatMessageCell` takes no spoiler touch
+  when `canPerformActions()` is false). `reveal` and `hide` are not affected.
+  The hand cursor over a hidden spoiler follows it from the next pointer move.
+- **ADDED**: `MarkdownSpoilerController.tapTimeout` (default
+  `kLongPressTimeout`, 500 ms; null for no limit). A press held longer is a long
+  press, which belongs to the host (the message menu, a selection), and its
+  release reveals nothing; it is measured on the pointer events' own
+  timestamps, so a stalled frame does not turn a tap into a long press.
+  Existing code that held a spoiler for more than half a second and let go to
+  reveal it must now tap, or set `tapTimeout = null`, which is the desktop mouse
+  click. Android and Qt touch start a long press at that point, Telegram iOS
+  at 0.3 s (set `tapTimeout` for it).
 - **FIXED**: a pointer up delivered to a disposed `MarkdownRenderObject` threw a
   `RangeError` out of the spoiler tap handler when the pointer had gone down on
   a hidden spoiler. A host that remounts the body between down and up (a long

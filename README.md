@@ -220,7 +220,7 @@ dependencies:
   flutter_md:
     git:
       url: https://github.com/itsezlife/md.git
-      ref: v0.4.0 # a release tag; the fork is not published to pub.dev
+      ref: v0.4.1 # a release tag; the fork is not published to pub.dev
 ```
 
 Then run:
