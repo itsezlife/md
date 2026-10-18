@@ -762,6 +762,58 @@ String _applyInlineMath(String text, Map<String, String> replacements) {
   return buffer.toString();
 }
 
+/// Whether [unit] is an ASCII punctuation code unit, the characters CommonMark
+/// lets a backslash escape inside a link destination.
+bool _isAsciiPunctuation(int unit) =>
+    (unit >= 0x21 && unit <= 0x2F) ||
+    (unit >= 0x3A && unit <= 0x40) ||
+    (unit >= 0x5B && unit <= 0x60) ||
+    (unit >= 0x7B && unit <= 0x7E);
+
+/// Whether a backslash before [unit] is an escape in a link label: the same
+/// set paragraph text takes back ([_escapedChars]).
+bool _isEscapableInText(int unit) =>
+    unit < _escapedChars.length && _escapedChars[unit] == 1;
+
+/// [text] without the backslash of each escape: a backslash followed by a
+/// code unit [escapable] accepts. Any other backslash stays, and a backslash
+/// that is itself escaped is one literal backslash.
+///
+/// Works on code units, so the text after a backslash is never split: a
+/// surrogate pair, a ZWJ sequence or right-to-left text passes through whole.
+String _dropEscapes(String text, bool Function(int unit) escapable) {
+  var at = text.indexOf('\\');
+  if (at == -1) return text;
+  final buffer = StringBuffer();
+  var copied = 0;
+  while (at != -1) {
+    if (at + 1 < text.length && escapable(text.codeUnitAt(at + 1))) {
+      buffer.write(text.substring(copied, at));
+      // The escaped unit is kept and starts the next copied run, so an
+      // escaped backslash is not read as the start of another escape.
+      copied = at + 1;
+      at = text.indexOf('\\', at + 2);
+    } else {
+      at = text.indexOf('\\', at + 1);
+    }
+  }
+  return (buffer..write(text.substring(copied))).toString();
+}
+
+/// The index of the first `>` of [angled] (which starts with `<`) that a
+/// backslash has not escaped, or -1.
+int _unescapedAngleClose(String angled) {
+  for (var k = 1; k < angled.length; k++) {
+    final unit = angled.codeUnitAt(k);
+    if (unit == 0x5C) {
+      k++; // The escaped unit, whatever it is, cannot close.
+    } else if (unit == 0x3E) {
+      return k;
+    }
+  }
+  return -1;
+}
+
 /// Parses a link/image destination into its URL and optional title.
 ///
 /// Supports angle-bracketed URLs (`<url with spaces>`) and titles wrapped in
@@ -771,12 +823,12 @@ String _applyInlineMath(String text, Map<String, String> replacements) {
   var rest = raw.trim();
   String url;
   if (rest.startsWith('<')) {
-    final close = rest.indexOf('>');
+    final close = _unescapedAngleClose(rest);
     if (close != -1) {
-      url = rest.substring(1, close);
+      url = _dropEscapes(rest.substring(1, close), _isAsciiPunctuation);
       rest = rest.substring(close + 1).trim();
     } else {
-      url = rest.substring(1);
+      url = _dropEscapes(rest.substring(1), _isAsciiPunctuation);
       rest = '';
     }
   } else {
@@ -791,10 +843,10 @@ String _applyInlineMath(String text, Map<String, String> replacements) {
       }
     }
     if (space == -1) {
-      url = rest;
+      url = _dropEscapes(rest, _isAsciiPunctuation);
       rest = '';
     } else {
-      url = rest.substring(0, space);
+      url = _dropEscapes(rest.substring(0, space), _isAsciiPunctuation);
       rest = rest.substring(space + 1).trim();
     }
   }
@@ -1039,7 +1091,8 @@ List<MD$Span> _parseInlineSpans(String text, {Map<String, String>? math}) {
       final alt = target.title;
       links ??= <MD$Span>[];
       skip ??= Uint16List(length);
-      final label = text.substring(i + 1, labelEnd);
+      final label =
+          _dropEscapes(text.substring(i + 1, labelEnd), _isEscapableInText);
       // A mention-class destination makes a mention span instead of a link;
       // an image keeps its image style whatever its scheme.
       final mention = img ? null : _mentionTarget(src);

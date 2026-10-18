@@ -162,6 +162,18 @@ void main() => group('Dialect conformance', () {
           // A bang before a link is escaped so the link does not become an
           // image.
           r'wow\![x](u)': ['p: "wow!" | "x"<link>{href: u}'],
+          // A label takes its escapes back, whatever it labels.
+          r'[a\]b](u)': ['p: "a]b"<link>{href: u}'],
+          r'[\#tag](hashtag:tag)': [
+            'p: "#tag"<mention>{name: tag, scheme: hashtag}',
+          ],
+          r'![a\]b](document:1)': ['p: "a]b"<image>{src: document:1}'],
+          // So does a destination: a url with parentheses is written with
+          // them escaped.
+          r'[t](https://x/a_\(b\))': [
+            'p: "t"<link>{href: https://x/a_(b)}',
+          ],
+          r'[t](<https://x/a\>b>)': ['p: "t"<link>{href: https://x/a>b}'],
           // Nothing bare is detected: only a written link is a link.
           'see https://example.com and www.example.com or @alice': [
             'p: "see https://example.com and www.example.com or @alice"',
@@ -171,6 +183,9 @@ void main() => group('Dialect conformance', () {
 
       group('mention-class targets', () {
         _conform({
+          r'[@a\_b](mention:x)': [
+            'p: "@a_b"<mention>{id: x, name: @a_b, scheme: mention}',
+          ],
           'hi [@alice](mention:alice)!': [
             'p: "hi " | "@alice"<mention>'
                 '{id: alice, name: @alice, scheme: mention} | "!"',
@@ -360,32 +375,6 @@ void main() => group('Dialect conformance', () {
             'p: "continued"',
             'list:',
             '  - "next"',
-          ]);
-        });
-
-        test('a link label keeps the backslashes of its escapes', () {
-          // Means: "a]b" and "@a_b" with no backslash; a label is not
-          // unescaped the way paragraph text is (and a destination is).
-          expect(_read(r'[a\]b](u)'), [r'p: "a\]b"<link>{href: u}']);
-          expect(_read(r'[@a\_b](mention:x)'), [
-            r'p: "@a\_b"<mention>{id: x, name: @a\_b, scheme: mention}',
-          ]);
-          expect(_read(r'![a\]b](document:1)'), [
-            r'p: "a\]b"<image>{src: document:1}',
-          ]);
-        });
-
-        test('a destination keeps the backslashes of escaped punctuation', () {
-          // Means: href https://x/a_(b). The parser's regression suite locks
-          // the backslash (`[t](a\)b)` reads as `a\)b`), so this is a decision
-          // for the parser's owner, not a fix made here.
-          expect(_read(r'[t](https://x/a_\(b\))'), [
-            r'p: "t"<link>{href: https://x/a_\(b\)}',
-          ]);
-          // Means: href https://x/a>b; the first `>` closes the brackets
-          // escaped or not, and the rest reads as a title.
-          expect(_read(r'[t](<https://x/a\>b>)'), [
-            r'p: "t"<link>{alt: b>, href: https://x/a\}',
           ]);
         });
 

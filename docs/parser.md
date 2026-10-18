@@ -101,6 +101,8 @@ offsets:
   string, not the `$…$` source.
 - **Links/images:** offsets span the full `[..](..)` / `![..](..)` source range
   while `text` is only the label, so `text.length != end - start` there.
+  The label's escapes are taken back in `text` and `end` is not reduced for
+  them, as it is for escapes in plain text.
 
 ## GFM support & intentional/nonstandard choices
 
@@ -124,6 +126,12 @@ Inline:
 - **Escapes** for `` ! # $ ( ) * + - . = > [ \ ] _ ` { | } ~ ``; `\\` → `\`.
   `= > | ~` are the markers a copy writes, so a literal run of them reads back
   as text.
+  A link, mention-class or image **label** takes the same escapes back
+  (`[\#tag](hashtag:tag)` is `#tag`, `[a\]b](u)` is `a]b`), and so does a
+  **destination**, the CommonMark way: a backslash before any ASCII punctuation
+  is dropped (`[t](https://a.b/c_\(d\))` has the href `https://a.b/c_(d)`), and
+  inside `<...>` a `\>` does not close the destination. A backslash before
+  anything else stays.
 - **Links/images** `[text](url)`, `![alt](src)`; angle-bracket URLs, quoted/paren
   titles, balanced parens in bare URLs. **No reference-style links, no
   autolinks.** Emphasis wrapping a link merges masks (`**[x](u)**` → bold|link).
@@ -184,12 +192,6 @@ fixing the parser fails the case and the case moves to the table above:
 
 - a soft break inside a list item (`"- one  \ncontinued"`) ends the list instead
   of continuing the item;
-- backslash escapes inside a link label or destination keep their backslash
-  (`[a\]b](u)`, `[t](https://x/a_\(b\))`), and the first `>` closes an
-  angle-bracketed destination escaped or not. `regression_test.dart` locks the
-  destination reading (`[t](a\)b)` is `a\)b`), so a writer's URL with
-  parentheses opens with the backslashes until the parser's owner decides
-  otherwise;
 - a code span fenced with two backticks or more, and a code fence longer than
   three backticks, are not read as code;
 - an embed inside a link label (`[![a](unicode:1F44D)](u)`) is read as a link

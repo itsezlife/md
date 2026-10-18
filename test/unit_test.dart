@@ -9,6 +9,7 @@ import 'parser/edge_cases_test.dart' as edge_cases_test;
 import 'parser/gfm_test.dart' as gfm_test;
 import 'parser/golden_test.dart' as golden_test;
 import 'parser/inline_test.dart' as inline_test;
+import 'parser/link_escape_test.dart' as link_escape_test;
 import 'parser/math_test.dart' as math_test;
 import 'parser/parser_test.dart' as parser_test;
 import 'parser/regression_test.dart' as regression_test;
@@ -58,6 +59,7 @@ void main() => group('Unit', () {
       streaming_test.main();
       golden_test.main();
       dialect_conformance_test.main();
+      link_escape_test.main();
       nodes_test.main();
       highlight_test.main();
       theme_test.main();

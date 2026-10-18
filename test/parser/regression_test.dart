@@ -249,8 +249,14 @@ void main() {
       expect(span.extra?['url'], 'https://x.io');
     });
 
+    // The scan for the closing paren steps over `\)`, and the url that comes
+    // out is `a)b`: CommonMark takes a backslash before punctuation in a
+    // destination as an escape, and a chat host's writer escapes the
+    // parentheses of a wiki-style url (`https://a.b/c_(d)`) that way. An
+    // earlier version of this lock pinned `a\)b`, which opened the link at a
+    // path that does not exist.
     test('escaped closing paren inside a url', () {
-      expect(linkOf(r'[t](a\)b)').extra?['url'], r'a\)b');
+      expect(linkOf(r'[t](a\)b)').extra?['url'], 'a)b');
     });
 
     test('double-marker closer preceded by a space is skipped', () {
