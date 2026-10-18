@@ -514,7 +514,11 @@ final Uint8List _kind = Uint8List(2048)
   ..[126] = 1; // ~ - strikethrough (double)
 
 ///  Markdown provides backslash escapes for the following characters:
-final Uint8List _escapedChars = Uint8List(126)
+///
+/// `= > | ~` are escapable too: they are the marker characters a copy writes
+/// (`==`, `||`, `~~`) and the quote marker, so a literal run of them reads
+/// back as text instead of keeping its backslash.
+final Uint8List _escapedChars = Uint8List(127)
   ..[33] = 1 // ! Exclamation mark
   ..[35] = 1 // # Hash mark
   ..[36] = 1 // $ Dollar sign (so `\$` is a literal dollar / opts out of math)
@@ -524,13 +528,17 @@ final Uint8List _escapedChars = Uint8List(126)
   ..[43] = 1 // + Plus sign
   ..[45] = 1 // - Minus sign (hyphen)
   ..[46] = 1 // . Period
+  ..[61] = 1 // = Equals sign
+  ..[62] = 1 // > Greater-than sign
   ..[91] = 1 // [ Left square bracket
   ..[92] = 1 // \ Backslash
   ..[93] = 1 // ] Right square bracket
   ..[95] = 1 // _ Underscore
   ..[96] = 1 // ` Backtick
   ..[123] = 1 // { Left curly brace
-  ..[125] = 1; // } Right curly brace
+  ..[124] = 1 // | Vertical bar
+  ..[125] = 1 // } Right curly brace
+  ..[126] = 1; // ~ Tilde
 
 /// The default mapping of common LaTeX inline-math commands to their Unicode
 /// equivalents, used when [MarkdownDecoder.inlineMath] is enabled and no custom
@@ -836,6 +844,18 @@ bool _hasClosingBacktick(List<int> codes, int length, int from) {
   return false;
 }
 
+/// Whether the code unit at [i] is not a marker [ch] of the delimiter run that
+/// follows it. A [ch] the author escaped (`\*`) is text, not part of the run, so
+/// `**a\***` still closes where it ends.
+bool _endsRun(List<int> codes, int i, int ch) {
+  if (codes[i] != ch) return true;
+  var backslashes = 0;
+  for (var k = i - 1; k >= 0 && codes[k] == 0x5C; k--) {
+    backslashes++;
+  }
+  return backslashes.isOdd;
+}
+
 /// Whether a valid closing emphasis delimiter for [ch] (of run length
 /// [markerLen]) exists at or after [from]. A closer must be right-flanking
 /// (preceded by a non-space); underscore closers must also be at a word
@@ -858,11 +878,16 @@ bool _hasEmphasisCloser(
     if (codes[j] != ch) continue;
     if (markerLen == 2) {
       if (j + 1 < length && codes[j + 1] == ch) {
-        if (j > 0 && !_isInlineSpace(codes[j - 1]) && codes[j - 1] != ch)
+        if (j > 0 &&
+            !_isInlineSpace(codes[j - 1]) &&
+            _endsRun(codes, j - 1, ch)) {
           return true;
+        }
         j++; // Consume the delimiter pair.
       }
-    } else if (j > 0 && !_isInlineSpace(codes[j - 1]) && codes[j - 1] != ch) {
+    } else if (j > 0 &&
+        !_isInlineSpace(codes[j - 1]) &&
+        _endsRun(codes, j - 1, ch)) {
       if (ch != 0x5F /* _ */) return true;
       // Underscore: also require a word boundary after the closer.
       final after = j + 1;
@@ -954,7 +979,15 @@ List<MD$Span> _parseInlineSpans(String text, {Map<String, String>? math}) {
       if (ch != label$start) continue;
 
       // Check if it's an image or a link
-      final img = i > 0 && codes[i - 1] == img$symbol;
+      // A `!` the author escaped (`\!`) is text, so it leaves a link a link.
+      var img = i > 0 && codes[i - 1] == img$symbol;
+      if (img) {
+        var backslashes = 0;
+        for (var b = i - 2; b >= 0 && codes[b] == esc; b--) {
+          backslashes++;
+        }
+        if (backslashes.isOdd) img = false;
+      }
 
       // find closing ']' to determine the end of the label text
       var labelEnd = -1;
