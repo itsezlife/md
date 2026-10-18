@@ -62,9 +62,11 @@ rects, handles). This is the core design decision; the alternatives (Flutter's
 
 These are cross-cutting; each subsystem doc repeats the ones it owns.
 
-- **Glyph cache.** `MarkdownPainter` caches one `ui.Picture` keyed by paint size;
-  it is reused on every repaint and only nulled by `update`/`invalidateLayout`
-  (model/theme change or system-font change). Repaints from selection or
+- **Glyph cache.** `MarkdownPainter` caches one `ui.Picture` keyed by paint size
+  (two while a spoiler reveal runs: hidden and revealed; see
+  [rendering](rendering.md#spoilers)); it is reused on every repaint and only
+  nulled by `update`/`invalidateLayout` (model/theme change or system-font
+  change). Repaints from selection or
   horizontal pan/fling must not invalidate it. **`HorizontallyPannableBlock`s are
   omitted from the Picture** and painted live afterward (clip + translate), so
   scroll offset is never baked into the cache.
@@ -88,13 +90,13 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
 Everything public is re-exported from `lib/flutter_md.dart`:
 
 - **Whole-file exports:** `inline_embed.dart`, `markdown.dart`, `nodes.dart`,
-  `parser.dart`,
-  `selection.dart`, `selection_scope.dart`, `theme.dart`, `widget.dart`.
+  `parser.dart`, `selection.dart`, `selection_scope.dart`, `spoiler.dart`,
+  `theme.dart`, `widget.dart`.
 - **Curated `show` from `render.dart`:** the `BlockPainter` framework
   (`BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`,
   `SelectableTextBlock`,
   `MultiPainterSelectable`, `SelectableFragment`, `ParagraphGestureHandler`,
-  `paragraphFromMarkdownSpans`) and the default painters
+  `SpoilerBlockPainter`, `paragraphFromMarkdownSpans`) and the default painters
   (`BlockPainter$Paragraph … $Spacer`, plus opt-in `$ScrollableTable`).
 
 Deliberately **not** public (reachable only via `import 'package:flutter_md/src/render.dart'`,

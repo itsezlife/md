@@ -161,6 +161,7 @@ class BlockPainter$List
             spans: item.spans,
             theme: theme,
             embeds: inlineEmbeds,
+            revealed: spoilersRevealed,
           ),
           textDirection: theme.textDirection,
           textScaler: theme.textScaler,
