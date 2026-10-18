@@ -13,6 +13,7 @@ export 'src/render.dart'
         SelectableTextBlock,
         MultiPainterSelectable,
         SelectableFragment,
+        SpoilerBlockPainter,
         ParagraphGestureHandler,
         paragraphFromMarkdownSpans,
         // Default block painters — reuse, wrap or subclass them.
@@ -30,5 +31,6 @@ export 'src/highlight/engine.dart' show CodeHighlightTheme, SyntaxHighlighter;
 export 'src/selection.dart';
 export 'src/selection_autoscroll.dart';
 export 'src/selection_scope.dart';
+export 'src/spoiler.dart';
 export 'src/theme.dart';
 export 'src/widget.dart';

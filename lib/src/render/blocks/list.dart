@@ -155,7 +155,11 @@ class BlockPainter$List
         )..layout();
 
         final contentPainter = TextPainter(
-          text: paragraphFromMarkdownSpans(spans: item.spans, theme: theme),
+          text: paragraphFromMarkdownSpans(
+            spans: item.spans,
+            theme: theme,
+            revealed: spoilersRevealed,
+          ),
           textDirection: theme.textDirection,
           textScaler: theme.textScaler,
         )..layout(maxWidth: math.max(0, width - indent - bulletPainter.width));

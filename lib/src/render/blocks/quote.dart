@@ -121,6 +121,17 @@ class BlockPainter$Quote
   /// Last span hit by the tap down event.
   TextSpan? _lastSpan;
 
+  // Nested children keep their own painters, which exist before the first
+  // layout; [fragments] does not, so the state is also pushed down directly.
+  @override
+  set spoilersRevealed(bool value) {
+    super.spoilersRevealed = value;
+    _leafPainter?.setSpoilersRevealed(value);
+    for (final child in _children) {
+      if (child is SpoilerBlockPainter) child.spoilersRevealed = value;
+    }
+  }
+
   double get _contentLeft => lineIndent + indent * lineIndent;
 
   InlineSpan? _spanForPosition(Offset localPosition) {

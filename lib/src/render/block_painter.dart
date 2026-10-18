@@ -9,6 +9,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'span_builder.dart';
+
 /// A class for painting blocks in markdown.
 /// You can implement this interface to create custom block painters.
 abstract interface class BlockPainter {
@@ -130,12 +132,58 @@ abstract interface class SelectableBlockPainter implements BlockPainter {
   bool get selectionHighlightAboveCachedContent;
 }
 
+/// A [BlockPainter] whose text can hide `||spoiler||` runs.
+///
+/// Hiding is a colour change, not a layout change (see
+/// [MarkdownParagraphSpan]): [spoilersRevealed] flips without a relayout and no
+/// glyph moves, so [spoilerRects] is the same in both states. The orchestrator
+/// owns the state; a block only applies it. A block that does not implement
+/// this shows its spoilers as ordinary text.
+///
+/// [SelectableTextBlock] and [MultiPainterSelectable] implement it, so the
+/// default painters and any painter built on those mixins are covered.
+abstract interface class SpoilerBlockPainter implements BlockPainter {
+  /// Whether the block's text has any spoiler run. Meaningful after
+  /// [BlockPainter.layout] (a block that builds its text painters there knows
+  /// nothing before it).
+  bool get hasSpoilers;
+
+  /// Whether the spoiler runs show their text. `true` until set.
+  bool get spoilersRevealed;
+  set spoilersRevealed(bool value);
+
+  /// Block-local rectangles of the spoiler runs, one per line a run crosses,
+  /// as painted (a panned block reports them panned). Valid after
+  /// [BlockPainter.layout]; empty without a spoiler.
+  List<Rect> get spoilerRects;
+}
+
 /// Provides [SelectableBlockPainter] for a block backed by a single
 /// [TextPainter]. Subclasses supply [selectionPainter] and, when the glyphs are
 /// not painted at the block origin, [selectionOrigin].
-mixin SelectableTextBlock implements SelectableBlockPainter {
+mixin SelectableTextBlock
+    implements SelectableBlockPainter, SpoilerBlockPainter {
   /// The text painter that owns the selectable glyphs.
   TextPainter get selectionPainter;
+
+  bool _spoilersRevealed = true;
+
+  @override
+  bool get spoilersRevealed => _spoilersRevealed;
+  @override
+  set spoilersRevealed(bool value) {
+    _spoilersRevealed = value;
+    selectionPainter.setSpoilersRevealed(value);
+  }
+
+  @override
+  bool get hasSpoilers => selectionPainter.hasSpoilers;
+
+  @override
+  List<Rect> get spoilerRects => <Rect>[
+        for (final rect in selectionPainter.spoilerBoxes)
+          rect.shift(selectionOrigin),
+      ];
 
   /// Block-local origin where [selectionPainter] is painted.
   Offset get selectionOrigin => Offset.zero;
@@ -229,10 +277,37 @@ class SelectableFragment {
 /// [markdownBlockRenderedText], with each fragment's `textStart` matching that
 /// linearization (the gaps between fragments are the `\n`/`\t` separators, which
 /// have no glyphs of their own). [renderedText] must equal that linearization.
-mixin MultiPainterSelectable implements SelectableBlockPainter {
+mixin MultiPainterSelectable
+    implements SelectableBlockPainter, SpoilerBlockPainter {
   /// The selectable runs of this block, in rendered-text order. Rebuilt on each
   /// [BlockPainter.layout].
   List<SelectableFragment> get fragments;
+
+  bool _spoilersRevealed = true;
+
+  /// The state is kept here as well as pushed to the painters because a block
+  /// that rebuilds its painters on layout (a list, a table) must build them in
+  /// the state the orchestrator last asked for.
+  @override
+  bool get spoilersRevealed => _spoilersRevealed;
+  @override
+  set spoilersRevealed(bool value) {
+    _spoilersRevealed = value;
+    for (final fragment in fragments) {
+      fragment.painter.setSpoilersRevealed(value);
+    }
+  }
+
+  @override
+  bool get hasSpoilers =>
+      fragments.any((fragment) => fragment.painter.hasSpoilers);
+
+  @override
+  List<Rect> get spoilerRects => <Rect>[
+        for (final fragment in fragments)
+          for (final rect in fragment.painter.spoilerBoxes)
+            rect.shift(fragment.origin),
+      ];
 
   @override
   bool get selectionHighlightAboveCachedContent => false;

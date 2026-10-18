@@ -24,6 +24,7 @@ import 'blocks/paragraph.dart';
 import 'blocks/quote.dart';
 import 'blocks/spacer.dart';
 import 'blocks/table.dart';
+import 'spoiler_phase.dart';
 
 /// A painter for rendering markdown content via blocks and spans.
 @meta.internal
@@ -186,6 +187,9 @@ class MarkdownPainter {
     onPaintersRebuilt?.call();
     _needsLayout = true; // Mark that layout needs to be recalculated.
     _size = Size.zero; // Reset size before rebuilding.
+    // The indices below name the painters just disposed; [layout] refills them.
+    _spoilerBlocks = const <int>{};
+    _staticSpoilerRects.clear();
     final filter = _theme.blockFilter;
     final builder = _theme.builder ?? _defaultBlockBuilder;
     final blocks = _markdown.blocks;
@@ -579,8 +583,7 @@ class MarkdownPainter {
     // content-anchored remap would key pans by the new blocks' text.
     final oldBlocks = _markdown.blocks;
     final harvested = _harvestHorizontalPanOffsets();
-    _lastSize = null;
-    _lastPicture = null;
+    _dropPictures();
     _markdown = markdown;
     _theme = theme;
     _isEmpty = markdown.isEmpty;
@@ -592,8 +595,7 @@ class MarkdownPainter {
   /// This forces TextPainters to recreate their layouts with new fonts.
   void invalidateLayout() {
     _needsLayout = true;
-    _lastSize = null;
-    _lastPicture = null;
+    _dropPictures();
     // Dispose and rebuild all block painters to recreate TextPainters
     // with the new system fonts (_rebuild harvests horizontal pans first).
     _rebuild();
@@ -611,6 +613,7 @@ class MarkdownPainter {
     if (_isEmpty) {
       _size = Size.zero;
       _needsLayout = false; // No need to layout if the markdown is empty.
+      _findSpoilerBlocks();
       return _size; // If the markdown is empty, return zero size.
     }
     var width = .0, height = .0;
@@ -641,6 +644,7 @@ class MarkdownPainter {
       syncHorizontalPanStore();
     }
     _needsLayout = false; // No need to layout if the markdown is empty.
+    _findSpoilerBlocks();
     return _size = Size(width, height);
   }
 
@@ -768,22 +772,192 @@ class MarkdownPainter {
     return rebased as T;
   }
 
-  /// The last size and picture used for painting.
-  /// This is used to avoid unnecessary recreation of the canvas picture.
-  /// If the size is the same as the last painted size,
+  // --- Spoilers -------------------------------------------------------------
+
+  SpoilerPhase _spoilerPhase = const SpoilerPhase$Revealed();
+
+  /// How the document's spoilers are drawn. [SpoilerPhase$Revealed] until the
+  /// render object, which owns the [MarkdownSpoilerController] binding, says
+  /// otherwise: without a controller there is nothing to hide behind.
+  SpoilerPhase get spoilerPhase => _spoilerPhase;
+
+  /// Moves the spoilers to [phase]. Returns whether it changed (the caller
+  /// repaints). Never lays out and never records: the pictures are swapped on
+  /// the next [paint].
+  bool setSpoilerPhase(SpoilerPhase phase) {
+    if (_spoilerPhase == phase) return false;
+    _spoilerPhase = phase;
+    return true;
+  }
+
+  /// Painter indices of the blocks with a spoiler run; set by [layout].
+  Set<int> _spoilerBlocks = const <int>{};
+
+  /// Content-local spoiler rects of the non-pannable blocks, by painter index.
+  /// Valid until the next [layout]; pannable blocks move, so they are asked
+  /// every time.
+  final Map<int, List<Rect>> _staticSpoilerRects = <int, List<Rect>>{};
+
+  /// Whether any block has a spoiler. Valid after [layout].
+  bool get hasSpoilers => _spoilerBlocks.isNotEmpty;
+
+  void _findSpoilerBlocks() {
+    _staticSpoilerRects.clear();
+    _spoilerBlocks = <int>{
+      for (var i = 0; i < _blockPainters.length; i++)
+        if (_blockPainters[i] case final SpoilerBlockPainter block
+            when block.hasSpoilers)
+          i,
+    };
+  }
+
+  /// Content-local rectangles of every spoiler run, in reading order (a panned
+  /// block's rects are panned and clipped to its viewport). Empty before
+  /// layout and without a spoiler.
+  List<Rect> get spoilerRects =>
+      _needsLayout ? const <Rect>[] : _spoilerRects();
+
+  List<Rect> _spoilerRects() {
+    final out = <Rect>[];
+    for (final i in _spoilerBlocks) {
+      final block = _blockPainters[i] as SpoilerBlockPainter;
+      out.addAll(
+        block is HorizontallyPannableBlock
+            ? _blockSpoilerRects(i, block)
+            : _staticSpoilerRects[i] ??= _blockSpoilerRects(i, block),
+      );
+    }
+    return out;
+  }
+
+  List<Rect> _blockSpoilerRects(int index, SpoilerBlockPainter block) {
+    final shift = Offset(0, _blockOffsets[index]);
+    final rects = <Rect>[
+      for (final rect in block.spoilerRects) rect.shift(shift)
+    ];
+    if (block is! HorizontallyPannableBlock) return rects;
+    final viewport = shift & block.size;
+    return <Rect>[
+      for (final rect in rects)
+        if (rect.overlaps(viewport)) rect.intersect(viewport),
+    ];
+  }
+
+  /// Whether [local] (content-local) is on a spoiler that is still hidden.
+  /// During the ripple the document already counts as revealed.
+  bool hiddenSpoilerAt(Offset local) {
+    if (_needsLayout || _spoilerPhase is! SpoilerPhase$Hidden) return false;
+    for (final rect in _spoilerRects()) {
+      if (rect.contains(local)) return true;
+    }
+    return false;
+  }
+
+  /// The opacity an inline embed painted at the content-local [rect] must
+  /// have: 0 while a spoiler hides it, the ripple's progress while it
+  /// reveals, 1 anywhere else.
+  ///
+  /// The embeds themselves are painted by a live pass; this is the spoiler's
+  /// half of that contract (Android's `insideSpoiler`).
+  double embedOpacityAt(Rect rect) {
+    if (_needsLayout || _spoilerBlocks.isEmpty) return 1;
+    final inside = _spoilerRects().any((r) => r.contains(rect.center));
+    if (!inside) return 1;
+    return switch (_spoilerPhase) {
+      SpoilerPhase$Hidden() => 0,
+      SpoilerPhase$Revealing(:final progress) => progress,
+      SpoilerPhase$Revealed() => 1,
+    };
+  }
+
+  /// Interim fill: a flat dust-coloured patch over each hidden spoiler. The
+  /// particle tile replaces this body; the pass (live, above the pictures,
+  /// outside the ripple circle) stays.
+  void _paintSpoilerFill(
+    Canvas canvas,
+    SpoilerPhase phase,
+    _SpoilerRipple? ripple,
+  ) {
+    if (phase is SpoilerPhase$Revealed || _spoilerBlocks.isEmpty) return;
+    final paint = Paint()
+      ..color = (_theme.textStyle.color ?? const Color(0xFF000000))
+          .withValues(alpha: _kSpoilerFillAlpha);
+    canvas.save();
+    if (ripple != null) canvas.clipPath(ripple.hiddenSpoilers);
+    for (final rect in _spoilerRects()) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(rect, const Radius.circular(_kSpoilerRadius)),
+        paint,
+      );
+    }
+    canvas.restore();
+  }
+
+  // --- Glyph pictures -------------------------------------------------------
+
+  /// The size both glyph pictures were recorded for.
   Size? _lastSize;
 
-  /// The last picture used for painting,
-  /// to avoid unnecessary recreation of the canvas picture.
-  /// If the size is the same as the last painted size,
-  /// we can reuse the last picture.
-  Picture? _lastPicture;
+  /// The glyph picture with spoilers shown. The only picture a document with
+  /// no spoiler (or a revealed one) ever has.
+  Picture? _revealedPicture;
+
+  /// The glyph picture with spoilers concealed. Dropped once the document is
+  /// revealed: at most two pictures exist per size, and only while a ripple
+  /// needs both.
+  Picture? _hiddenPicture;
+
+  int _pictureRecordings = 0;
+
+  void _dropPictures() {
+    _lastSize = null;
+    _revealedPicture?.dispose();
+    _revealedPicture = null;
+    _hiddenPicture?.dispose();
+    _hiddenPicture = null;
+  }
+
+  /// The glyph picture for [revealed], recorded on first use at [size].
+  ///
+  /// Only non-pannable blocks are recorded - pan offset must not be baked in.
+  /// Each block is put in the requested spoiler state first; that is a
+  /// paint-only text swap, never a layout.
+  Picture _pictureFor(bool revealed, Size size) {
+    final cached = revealed ? _revealedPicture : _hiddenPicture;
+    if (cached != null) return cached;
+    final recorder = PictureRecorder();
+    final $canvas = Canvas(recorder);
+
+    var overflow = _size.height > size.height;
+    var offset = .0;
+    for (var painter in _blockPainters) {
+      if (overflow && offset > size.height) {
+        break;
+      }
+      if (painter is! HorizontallyPannableBlock) {
+        if (painter is SpoilerBlockPainter) painter.spoilersRevealed = revealed;
+        painter.paint($canvas, size, offset);
+      }
+      offset += painter.size.height;
+    }
+
+    final picture = recorder.endRecording();
+    _pictureRecordings++;
+    if (revealed) {
+      _revealedPicture = picture;
+    } else {
+      _hiddenPicture = picture;
+    }
+    return picture;
+  }
 
   /// The markdown content to paint.
   ///
-  /// Non-pannable blocks are recorded into a cached [Picture] keyed by size.
-  /// [HorizontallyPannableBlock]s are painted live afterward (clip + translate
-  /// inside each painter) so pan/fling never invalidates the glyph cache.
+  /// Non-pannable blocks are recorded into cached glyph [Picture]s keyed by
+  /// size. [HorizontallyPannableBlock]s are painted live afterward (clip +
+  /// translate inside each painter) so pan/fling never invalidates the glyph
+  /// cache. The spoiler fill is a live pass too, above the pictures: neither a
+  /// fill repaint nor a ripple frame records a picture.
   void paint(Canvas canvas, Size size) {
     assert(
       !_needsLayout,
@@ -798,55 +972,107 @@ class MarkdownPainter {
     // or if the size is empty or infinite.
     if (_isEmpty || size.isEmpty || size.isInfinite) return;
 
-    if (_lastSize == size && _lastPicture != null) {
-      // Reuse the glyph cache; pannable blocks still paint live below.
-      canvas.drawPicture(_lastPicture!);
-    } else {
-      final recorder = PictureRecorder();
-      final $canvas = Canvas(recorder);
-
-      // Record only non-pannable blocks — pan offset must not be baked in.
-      var overflow = _size.height > size.height;
-      var offset = .0;
-      for (var painter in _blockPainters) {
-        if (overflow && offset > size.height) {
-          break;
-        }
-        if (painter is! HorizontallyPannableBlock) {
-          painter.paint($canvas, size, offset);
-        }
-        offset += painter.size.height;
-      }
-
-      final picture = recorder.endRecording();
-      canvas.drawPicture(picture);
+    if (_lastSize != size) {
+      _dropPictures();
       _lastSize = size;
-      _lastPicture?.dispose();
-      _lastPicture = picture;
     }
 
-    _paintPannableBlocks(canvas, size);
+    // A document with no spoiler has no phase: it is always "revealed".
+    final phase =
+        _spoilerBlocks.isEmpty ? const SpoilerPhase$Revealed() : _spoilerPhase;
+    final ripple = phase is SpoilerPhase$Revealing
+        ? _SpoilerRipple(phase, _spoilerRects(), size)
+        : null;
+    switch (phase) {
+      case SpoilerPhase$Revealed():
+        canvas.drawPicture(_pictureFor(true, size));
+        _hiddenPicture?.dispose();
+        _hiddenPicture = null;
+      case SpoilerPhase$Hidden():
+        canvas.drawPicture(_pictureFor(false, size));
+      case SpoilerPhase$Revealing():
+        // Inside the circle (and a spoiler) the revealed picture; everywhere
+        // else the hidden one. The two clips are complementary, so nothing is
+        // drawn twice - a translucent block background would otherwise
+        // darken inside the circle.
+        canvas
+          ..save()
+          ..clipPath(ripple!.outside)
+          ..drawPicture(_pictureFor(false, size))
+          ..restore()
+          ..save()
+          ..clipPath(ripple.inside)
+          ..drawPicture(_pictureFor(true, size))
+          ..restore();
+    }
+
+    _paintPannableBlocks(canvas, size, phase, ripple);
+    _paintSpoilerFill(canvas, phase, ripple);
   }
 
   /// Paints [HorizontallyPannableBlock]s on the live canvas (outside the
   /// document [Picture]) so scroll offset changes only need [markNeedsPaint].
-  void _paintPannableBlocks(Canvas canvas, Size size) {
+  ///
+  /// A pannable block with spoilers is put in the state the [phase] asks for
+  /// right before it paints; during a ripple it paints twice, once per side of
+  /// the circle.
+  void _paintPannableBlocks(
+    Canvas canvas,
+    Size size,
+    SpoilerPhase phase,
+    _SpoilerRipple? ripple,
+  ) {
     var overflow = _size.height > size.height;
     for (var i = 0; i < _blockPainters.length; i++) {
       final painter = _blockPainters[i];
       final offset = _blockOffsets[i];
       if (overflow && offset > size.height) break;
-      if (painter is HorizontallyPannableBlock) {
+      if (painter is! HorizontallyPannableBlock) continue;
+      if (!_spoilerBlocks.contains(i)) {
         painter.paint(canvas, size, offset);
+        continue;
+      }
+      // Only blocks that report a spoiler are in [_spoilerBlocks].
+      final spoiler = painter as SpoilerBlockPainter;
+      switch (phase) {
+        case SpoilerPhase$Revealed():
+          spoiler.spoilersRevealed = true;
+          painter.paint(canvas, size, offset);
+        case SpoilerPhase$Hidden():
+          spoiler.spoilersRevealed = false;
+          painter.paint(canvas, size, offset);
+        case SpoilerPhase$Revealing():
+          spoiler.spoilersRevealed = false;
+          canvas
+            ..save()
+            ..clipPath(ripple!.outside);
+          painter.paint(canvas, size, offset);
+          canvas.restore();
+          spoiler.spoilersRevealed = true;
+          canvas
+            ..save()
+            ..clipPath(ripple.inside);
+          painter.paint(canvas, size, offset);
+          canvas.restore();
       }
     }
   }
 
-  /// Whether the document glyph [Picture] is currently cached for [size].
+  /// Whether a glyph [Picture] is currently cached for [size].
   /// Exposed for tests asserting pan does not invalidate the cache.
   @visibleForTesting
   bool hasCachedPictureFor(Size size) =>
-      _lastSize == size && _lastPicture != null;
+      _lastSize == size && (_revealedPicture != null || _hiddenPicture != null);
+
+  /// How many glyph pictures have been recorded since this painter was made.
+  /// Exposed for tests asserting a live pass never re-records.
+  @visibleForTesting
+  int get debugPictureRecordings => _pictureRecordings;
+
+  /// How many glyph pictures are cached right now (at most two).
+  @visibleForTesting
+  int get debugCachedPictureCount =>
+      (_revealedPicture == null ? 0 : 1) + (_hiddenPicture == null ? 0 : 1);
 
   /// Live [HorizontallyPannableBlock] at painter index [painterIndex], if any.
   /// Exposed for tests asserting remount / remapped pan offsets.
@@ -865,8 +1091,7 @@ class MarkdownPainter {
       Map<int, double>.unmodifiable(_horizontalPanBySource);
 
   void dispose() {
-    _lastPicture?.dispose();
-    _lastPicture = null;
+    _dropPictures();
     _horizontalPanBySource.clear();
     onPaintersRebuilt = null;
     for (final painter in _blockPainters) {
@@ -874,4 +1099,59 @@ class MarkdownPainter {
     }
     _blockPainters = const <BlockPainter>[];
   }
+}
+
+/// Opacity of the interim spoiler fill, over the theme's text colour.
+const double _kSpoilerFillAlpha = 0.35;
+
+/// Corner radius of a spoiler patch (Android clips its dust to 3 dp).
+const double _kSpoilerRadius = 3.0;
+
+/// The geometry of one ripple frame, in content-local coordinates.
+///
+/// The circle grows from the tap point until it covers the farthest corner of
+/// any spoiler (Android grows it to the diagonal of all spoiler bounds). It is
+/// intersected with the spoiler rects: outside them the hidden and revealed
+/// pictures are identical, so only the spoilers need to differ.
+final class _SpoilerRipple {
+  _SpoilerRipple(SpoilerPhase$Revealing phase, List<Rect> rects, Size size) {
+    final region = Path();
+    Rect? bounds;
+    for (final rect in rects) {
+      region.addRect(rect);
+      bounds = bounds == null ? rect : bounds.expandToInclude(rect);
+    }
+    final origin = phase.origin ?? bounds?.center ?? Offset.zero;
+    var farthest = 0.0;
+    for (final rect in rects) {
+      for (final corner in [
+        rect.topLeft,
+        rect.topRight,
+        rect.bottomLeft,
+        rect.bottomRight,
+      ]) {
+        farthest = math.max(farthest, (corner - origin).distance);
+      }
+    }
+    final circle = Path()
+      ..addOval(
+        Rect.fromCircle(center: origin, radius: farthest * phase.progress),
+      );
+    inside = Path.combine(PathOperation.intersect, region, circle);
+    outside = Path.combine(
+      PathOperation.difference,
+      Path()..addRect(Offset.zero & size),
+      inside,
+    );
+    hiddenSpoilers = Path.combine(PathOperation.difference, region, circle);
+  }
+
+  /// Spoiler area already revealed: the revealed picture shows here.
+  late final Path inside;
+
+  /// Everything else: the hidden picture shows here.
+  late final Path outside;
+
+  /// Spoiler area the circle has not reached: the fill still covers it.
+  late final Path hiddenSpoilers;
 }

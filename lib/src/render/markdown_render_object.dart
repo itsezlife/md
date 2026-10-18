@@ -14,9 +14,11 @@ import 'package:meta/meta.dart' as meta show internal;
 
 import '../markdown.dart';
 import '../selection.dart';
+import '../spoiler.dart';
 import '../theme.dart';
 import 'block_painter.dart';
 import 'markdown_painter.dart';
+import 'spoiler_phase.dart';
 
 /// Default color used to paint the selection highlight under the glyphs.
 const Color _kSelectionColor = Color(0x552196F3);
@@ -77,6 +79,25 @@ class MarkdownRenderObject extends RenderBox
   HorizontallyPannableBlock? _ballisticBlock;
   Duration _ballisticStart = Duration.zero;
 
+  // --- Spoilers ---
+
+  /// Which documents are revealed, and the id this surface is one of. Null
+  /// when the widget has no controller or no document id: spoilers then paint
+  /// as ordinary text.
+  MarkdownSpoilerController? _spoilerController;
+  Object? _spoilerDocumentId;
+
+  /// The platform asked for reduced motion; the controller's own switch is read
+  /// live.
+  bool _reduceMotion = false;
+
+  /// Drives the reveal ripple. A raw [Ticker] like the fling's: muted with
+  /// [TickerMode], and a muted ripple is finished rather than left half-drawn.
+  Ticker? _rippleTicker;
+
+  /// A pointer that went down on a hidden spoiler and has not come up yet.
+  ({int pointer, Offset local})? _spoilerTap;
+
   /// Whether [paint] will push a start and/or end [LeaderLayer] this frame.
   ///
   /// Drives [alwaysNeedsCompositing]; keep it in lockstep with the conditions
@@ -97,9 +118,11 @@ class MarkdownRenderObject extends RenderBox
     if (_tickerModeEnabled == enabled) return;
     _tickerModeEnabled = enabled;
     _ballisticTicker?.muted = !_tickerModeEnabled || !attached;
+    _rippleTicker?.muted = !_tickerModeEnabled || !attached;
     if (!enabled) {
       _stopBallistic();
       _ballisticTicker?.stop();
+      _finishRipple();
     }
   }
 
@@ -186,6 +209,156 @@ class MarkdownRenderObject extends RenderBox
       markNeedsLayout();
       markNeedsCompositingBitsUpdate();
       markNeedsPaint();
+    }
+  }
+
+  // --- Spoilers ---
+
+  /// Wires (or rewires) this surface to the [controller] that says whether
+  /// [documentId] is revealed. A null controller or id leaves spoilers painted
+  /// as ordinary text.
+  ///
+  /// A document that is already revealed when this runs (a remount, a second
+  /// widget of it) shows revealed at once; only a reveal that happens while
+  /// mounted ripples.
+  @meta.internal
+  void updateSpoilers(
+    MarkdownSpoilerController? controller,
+    Object? documentId, {
+    bool reduceMotion = false,
+  }) {
+    _reduceMotion = reduceMotion;
+    final bound = controller != null && documentId != null;
+    final nextController = bound ? controller : null;
+    final nextId = bound ? documentId : null;
+    if (identical(nextController, _spoilerController) &&
+        nextId == _spoilerDocumentId) {
+      return;
+    }
+    _spoilerController?.removeListener(_onSpoilerChange);
+    _stopRipple();
+    _spoilerController = nextController;
+    _spoilerDocumentId = nextId;
+    nextController?.addListener(_onSpoilerChange);
+    _syncSpoilerPhase(animate: false);
+  }
+
+  void _onSpoilerChange() {
+    if (_disposed) return;
+    _syncSpoilerPhase(animate: true);
+  }
+
+  /// Whether a reveal may move: the host allows it, the platform does not ask
+  /// for less, and there is a clock to run it on.
+  bool get _spoilerMotion =>
+      (_spoilerController?.animate ?? true) &&
+      !_reduceMotion &&
+      _tickerModeEnabled &&
+      attached;
+
+  void _syncSpoilerPhase({required bool animate}) {
+    final controller = _spoilerController;
+    final id = _spoilerDocumentId;
+    if (controller == null || id == null) {
+      _stopRipple();
+      _setSpoilerPhase(const SpoilerPhase$Revealed());
+      return;
+    }
+    if (!controller.isRevealed(id)) {
+      _stopRipple();
+      _setSpoilerPhase(const SpoilerPhase$Hidden());
+      return;
+    }
+    // Already rippling or revealed: nothing more to do.
+    if (_painter.spoilerPhase is! SpoilerPhase$Hidden) return;
+    if (animate && _spoilerMotion && _painter.hasSpoilers) {
+      _startRipple(controller.revealOriginOf(id));
+    } else {
+      _setSpoilerPhase(const SpoilerPhase$Revealed());
+    }
+  }
+
+  void _setSpoilerPhase(SpoilerPhase phase) {
+    if (_painter.setSpoilerPhase(phase) && attached && !_disposed) {
+      markNeedsPaint();
+    }
+  }
+
+  void _startRipple(Offset? globalOrigin) {
+    final ticker = _rippleTicker ??= Ticker(
+      _onRippleTick,
+      debugLabel: 'md.spoiler.reveal',
+    );
+    ticker.muted = !_tickerModeEnabled || !attached;
+    if (ticker.isActive) ticker.stop();
+    _rippleOrigin = globalOrigin == null ? null : globalToLocal(globalOrigin);
+    _setSpoilerPhase(
+        SpoilerPhase$Revealing(origin: _rippleOrigin, progress: 0));
+    ticker.start();
+  }
+
+  Offset? _rippleOrigin;
+
+  void _onRippleTick(Duration elapsed) {
+    final t = elapsed.inMicroseconds /
+        MarkdownSpoilerController.revealDuration.inMicroseconds;
+    if (t >= 1.0) {
+      _finishRipple();
+      return;
+    }
+    _setSpoilerPhase(
+      SpoilerPhase$Revealing(
+        origin: _rippleOrigin,
+        progress: Curves.easeOut.transform(t),
+      ),
+    );
+  }
+
+  void _stopRipple() {
+    _rippleTicker?.stop();
+    _rippleOrigin = null;
+  }
+
+  /// Ends a running ripple on the revealed picture.
+  void _finishRipple() {
+    if (_painter.spoilerPhase is! SpoilerPhase$Revealing) return;
+    _stopRipple();
+    _setSpoilerPhase(const SpoilerPhase$Revealed());
+  }
+
+  /// Turns a tap on a hidden spoiler into a reveal. Returns whether [event]
+  /// was consumed: a pointer that went down on a hidden spoiler is not
+  /// forwarded to the blocks at all, so a link or embed under the spoiler does
+  /// not fire - the tap reveals instead, as in Telegram iOS. The same tap after
+  /// the reveal reaches the link.
+  bool _handleSpoilerTap(PointerEvent event) {
+    switch (event) {
+      case PointerDownEvent():
+        if (_spoilerController == null ||
+            !_painter.hiddenSpoilerAt(event.localPosition)) {
+          _spoilerTap = null;
+          return false;
+        }
+        _spoilerTap = (pointer: event.pointer, local: event.localPosition);
+        return true;
+      case PointerUpEvent():
+        final tap = _spoilerTap;
+        if (tap == null || tap.pointer != event.pointer) return false;
+        _spoilerTap = null;
+        final slop = computePanSlop(event.kind, null);
+        if ((event.localPosition - tap.local).distance <= slop &&
+            _painter.hiddenSpoilerAt(event.localPosition)) {
+          _spoilerController?.reveal(
+            _spoilerDocumentId!,
+            origin: event.position,
+          );
+        }
+        return true;
+      case PointerCancelEvent():
+        _spoilerTap = null;
+        return false;
+      default:
+        return false;
     }
   }
 
@@ -347,7 +520,7 @@ class MarkdownRenderObject extends RenderBox
       final custom = resolver(local, blockIndex, block);
       if (custom != null) return custom;
     }
-    if (_painter.isLinkAtLocal(local)) {
+    if (_painter.isLinkAtLocal(local) || _painter.hiddenSpoilerAt(local)) {
       return SystemMouseCursors.click;
     }
     if (_controller != null && _painter.isSelectableAtLocal(local)) {
@@ -480,6 +653,7 @@ class MarkdownRenderObject extends RenderBox
     } else if (event is PointerDownEvent) {
       _maybeArmHorizontalPan(event);
     }
+    if (_handleSpoilerTap(event)) return;
     _painter.handleEvent(event);
   }
 
@@ -590,6 +764,7 @@ class MarkdownRenderObject extends RenderBox
   void attach(PipelineOwner owner) {
     super.attach(owner);
     _ballisticTicker?.muted = !_tickerModeEnabled || !attached;
+    _rippleTicker?.muted = !_tickerModeEnabled || !attached;
     PaintingBinding.instance.systemFonts.addListener(_handleSystemFontsChange);
     _painter.bindHorizontalPanStore(_controller, _documentId);
     final controller = _controller;
@@ -636,6 +811,9 @@ class MarkdownRenderObject extends RenderBox
   void detach() {
     _stopBallistic();
     _ballisticTicker?.muted = true;
+    // A muted ticker would strand the ripple half-drawn; end it revealed.
+    _rippleTicker?.muted = true;
+    _finishRipple();
     PaintingBinding.instance.systemFonts
         .removeListener(_handleSystemFontsChange);
     _controller?.detachSurface(this);
@@ -650,6 +828,10 @@ class MarkdownRenderObject extends RenderBox
   @protected
   void dispose() {
     _disposed = true;
+    _spoilerController?.removeListener(_onSpoilerChange);
+    _spoilerController = null;
+    _rippleTicker?.dispose();
+    _rippleTicker = null;
     _controller?.removeListener(_onSelectionChange);
     _clearSelectionHandleLayers();
     _stopBallistic();
