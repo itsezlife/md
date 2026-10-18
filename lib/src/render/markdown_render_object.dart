@@ -419,6 +419,14 @@ class MarkdownRenderObject extends RenderBox
   /// not fire - the tap reveals instead, as in Telegram iOS. The same tap after
   /// the reveal reaches the link.
   bool _handleSpoilerTap(PointerEvent event) {
+    // A pointer is routed along the hit-test path recorded at its down, so a
+    // host that remounts the body before the up (a long press that starts a
+    // selection) delivers it to a disposed render object, whose painter has
+    // no blocks left to ask. The remounted twin never saw the down.
+    if (_disposed) {
+      _spoilerTap = null;
+      return false;
+    }
     switch (event) {
       case PointerDownEvent():
         // Only the primary button taps; a secondary click opens the host's

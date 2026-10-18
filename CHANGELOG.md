@@ -1,3 +1,12 @@
+## Unreleased
+
+- **FIXED**: a pointer up delivered to a disposed `MarkdownRenderObject` threw a
+  `RangeError` out of the spoiler tap handler when the pointer had gone down on
+  a hidden spoiler. A host that remounts the body between down and up (a long
+  press that starts a selection) hit it on every release; the up is now ignored
+  by the disposed object and the remounted body, which never saw the down,
+  reveals nothing.
+
 ## 0.4.0
 
 Before this release a chat body was text and chrome: `![alt](src)` drew its alt
