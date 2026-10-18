@@ -32,6 +32,20 @@ final class MarkdownEmbedEntry {
 
   /// Offset just past the alt text in the rendered text.
   int get renderedEnd => renderedStart + alt.length;
+
+  /// Whether a selection of [range] (rendered offsets of this paragraph)
+  /// takes the embed in.
+  ///
+  /// The alt text is atomic, so a selection covers it whole or not at all. An
+  /// embed with no alt text has no text to cover; it is in when the selection
+  /// reaches past it on both sides.
+  bool isCoveredBy(TextRange range) {
+    if (range.start >= range.end) return false;
+    if (alt.isEmpty) {
+      return range.start < renderedStart && renderedEnd < range.end;
+    }
+    return range.start <= renderedStart && renderedEnd <= range.end;
+  }
 }
 
 /// The two offset spaces of a paragraph with embeds, and the map between them.

@@ -8,6 +8,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'package:meta/meta.dart' as meta show internal;
+
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
@@ -71,7 +73,12 @@ class BlockPainter$List
   final MarkdownThemeData theme;
 
   /// Where the items' inline embeds come from, if the body has any.
-  final MarkdownEmbedHost? inlineEmbeds;
+  ///
+  /// A painter a theme `builder` made has no way to be given the host, which
+  /// is internal; `MarkdownPainter` sets it, before the first layout, on one
+  /// that has none. Nothing else writes it.
+  @meta.internal
+  MarkdownEmbedHost? inlineEmbeds;
   final List<MD$ListItem> _items;
   final List<_ListItemMetrics> _painters;
 

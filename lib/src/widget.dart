@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import 'inline_embed.dart' show MarkdownInlineEmbedResolver;
 import 'markdown.dart' show Markdown;
 import 'render.dart' show MarkdownRenderObject;
 import 'selection.dart' show MarkdownSelectionController;
@@ -19,6 +20,7 @@ class MarkdownWidget extends LeafRenderObjectWidget {
     this.documentId,
     this.spoilerController,
     this.cursorResolver,
+    this.embedResolver,
     super.key, // ignore: unused_element
   });
 
@@ -56,6 +58,22 @@ class MarkdownWidget extends LeafRenderObjectWidget {
   /// When non-null, overrides [MarkdownThemeData.cursorResolver].
   final MarkdownCursorResolver? cursorResolver;
 
+  /// Where the inline embeds of the text come from.
+  ///
+  /// An image `![alt](scheme:id)` whose target the resolver answers for is laid
+  /// out as an embed, painted live every frame over the cached glyphs; any
+  /// other image stays its alt text. The widget owns every embed the resolver
+  /// returns and disposes them when the text, the resolver or the display's
+  /// pixel ratio changes, and when it leaves the tree.
+  ///
+  /// Keep the resolver stable (one per host, not one per build): a different
+  /// instance disposes every embed and resolves them again. Null shows every
+  /// image as its alt text.
+  final MarkdownInlineEmbedResolver? embedResolver;
+
+  double _resolveDevicePixelRatio(BuildContext context) =>
+      MediaQuery.maybeDevicePixelRatioOf(context) ?? 1.0;
+
   MarkdownThemeData _resolveTheme(BuildContext context) =>
       theme ??
       MarkdownTheme.maybeOf(context) ??
@@ -81,6 +99,8 @@ class MarkdownWidget extends LeafRenderObjectWidget {
         markdown: markdown,
         theme: _resolveTheme(context),
         cursorResolver: cursorResolver,
+        embedResolver: embedResolver,
+        devicePixelRatio: _resolveDevicePixelRatio(context),
       )
         ..updateSelection(
           _resolveController(context),
@@ -119,6 +139,8 @@ class MarkdownWidget extends LeafRenderObjectWidget {
         markdown: markdown,
         theme: _resolveTheme(context),
         cursorResolver: cursorResolver,
+        embedResolver: embedResolver,
+        devicePixelRatio: _resolveDevicePixelRatio(context),
       );
   }
 }

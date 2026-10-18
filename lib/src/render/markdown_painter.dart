@@ -25,6 +25,7 @@ import 'blocks/paragraph.dart';
 import 'blocks/quote.dart';
 import 'blocks/spacer.dart';
 import 'blocks/table.dart';
+import 'embed_offset_map.dart';
 import 'inline_embeds.dart';
 import 'spoiler_phase.dart';
 
@@ -39,9 +40,9 @@ class MarkdownPainter {
     double devicePixelRatio = 1.0,
   })  : _markdown = markdown,
         _theme = theme,
-        _embeds = _hostFor(embedResolver, devicePixelRatio),
         _isEmpty = markdown.isEmpty,
         _size = Size.zero {
+    _embeds = _hostFor(embedResolver, devicePixelRatio);
     _rebuild();
   }
 
@@ -50,7 +51,11 @@ class MarkdownPainter {
   /// room for them are: on a rebuild and on [dispose].
   MarkdownEmbedHost? _embeds;
 
-  static MarkdownEmbedHost? _hostFor(
+  /// Called when an embed says that what it paints has changed. The owner
+  /// repaints; nothing is laid out again and the glyph picture stays.
+  VoidCallback? onEmbedSignal;
+
+  MarkdownEmbedHost? _hostFor(
     MarkdownInlineEmbedResolver? resolver,
     double devicePixelRatio,
   ) =>
@@ -59,7 +64,11 @@ class MarkdownPainter {
           : MarkdownEmbedHost(
               resolver: resolver,
               devicePixelRatio: devicePixelRatio,
+              onSignal: () => onEmbedSignal?.call(),
             );
+
+  /// Whether any inline embed is alive in the blocks.
+  bool get hasEmbeds => !(_embeds?.isEmpty ?? true);
 
   /// Is the markdown entity empty?
   bool get isEmpty => _isEmpty;
@@ -133,8 +142,23 @@ class MarkdownPainter {
     MarkdownThemeData theme,
     MarkdownEmbedHost? embeds,
   ) =>
-      theme.builder?.call(block, theme) ??
+      _adopt(theme.builder?.call(block, theme), embeds) ??
       _defaultBlockBuilder(block, theme, embeds);
+
+  /// Hands [embeds] to a list or table a theme builder made, which could not
+  /// be given the host (it is internal) and builds its paragraphs at layout.
+  /// Painters that build theirs in the constructor stay as they were made.
+  static BlockPainter? _adopt(
+      BlockPainter? painter, MarkdownEmbedHost? embeds) {
+    switch (painter) {
+      case BlockPainter$Table(inlineEmbeds: null):
+        painter.inlineEmbeds = embeds;
+      case BlockPainter$List(inlineEmbeds: null):
+        painter.inlineEmbeds = embeds;
+      default:
+    }
+    return painter;
+  }
 
   static BlockPainter _defaultBlockBuilder(
     MD$Block block,
@@ -232,7 +256,7 @@ class MarkdownPainter {
       final block = blocks[i];
       if (filter != null && !filter(block)) continue;
       painters.add(
-        _theme.builder?.call(block, _theme) ??
+        _adopt(_theme.builder?.call(block, _theme), embeds) ??
             _defaultBlockBuilder(block, _theme, embeds),
       );
       sources.add(i);
@@ -678,6 +702,7 @@ class MarkdownPainter {
     required double maxWidth,
     bool commitHorizontalPan = true,
   }) {
+    _layoutCount++;
     if (_isEmpty) {
       _size = Size.zero;
       _needsLayout = false; // No need to layout if the markdown is empty.
@@ -731,7 +756,7 @@ class MarkdownPainter {
     final bottoms = <double>[];
     for (var i = 0; i < blocks.length; i++) {
       final top = _blockOffsets[i];
-      for (final (painter, offset) in _textFragments(blocks[i])) {
+      for (final (painter, offset, _) in _textFragments(blocks[i])) {
         var bottom = top + offset.dy;
         for (final line in painter.computeLineMetrics()) {
           bottom += line.height;
@@ -753,20 +778,24 @@ class MarkdownPainter {
     return lines;
   }
 
-  /// Selectable text runs of [block], as `(painter, block-local origin)`.
-  static Iterable<(TextPainter, Offset)> _textFragments(BlockPainter block) {
+  /// Selectable text runs of [block], as `(painter, block-local origin, the
+  /// index of the run's first character in the block's rendered text)`.
+  static Iterable<(TextPainter, Offset, int)> _textFragments(
+    BlockPainter block,
+  ) {
     if (block is SelectableTextBlock) {
-      return <(TextPainter, Offset)>[
+      return <(TextPainter, Offset, int)>[
         (
           block.selectionPainter,
           block.selectionOrigin,
+          0,
         )
       ];
     }
     if (block is MultiPainterSelectable) {
-      return block.fragments.map((f) => (f.painter, f.origin));
+      return block.fragments.map((f) => (f.painter, f.origin, f.textStart));
     }
-    return const <(TextPainter, Offset)>[];
+    return const <(TextPainter, Offset, int)>[];
   }
 
   /// Routes a tap-down / tap-up to the block under the pointer, re-basing the
@@ -1125,6 +1154,126 @@ class MarkdownPainter {
       }
     }
   }
+
+  // --- Inline embeds: the live pass ---
+
+  /// Paints every visible inline embed into the square its placeholder
+  /// reserved, on the live canvas after the glyph [Picture] and before the
+  /// above-content selection tint.
+  ///
+  /// This is the third pass beside the cached picture and the pannable blocks:
+  /// the placeholder paints nothing into the picture, so an embed that
+  /// animates costs a repaint and never a re-recording or a layout. Blocks past
+  /// the painted height are skipped by the guard that bounds the picture.
+  ///
+  /// A selection tints an embed it covers, over the embed: the under-glyph
+  /// tint of a text block is hidden by an opaque embed. Blocks that already
+  /// paint their tint above the picture are left to that pass.
+  void paintEmbeds(
+    Canvas canvas,
+    Size size,
+    TextRange? Function(int sourceIndex) rangeOf,
+    Paint highlight,
+  ) {
+    final host = _embeds;
+    if (host == null || host.isEmpty) return;
+    if (_needsLayout || _isEmpty || size.isEmpty || size.isInfinite) return;
+    final overflow = _size.height > size.height;
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final top = _blockOffsets[i];
+      if (overflow && top > size.height) break;
+      final block = _blockPainters[i];
+      final tintable = block is SelectableBlockPainter &&
+          !block.selectionHighlightAboveCachedContent;
+      final range = tintable ? rangeOf(_sourceIndices[i]) : null;
+      final panned = switch (block) {
+        final PannedContent pannable => pannable.pushPanTransform(canvas, top),
+        _ => false,
+      };
+      for (final (painter, origin, textStart) in _textFragments(block)) {
+        final offsets = MarkdownEmbedOffsets.of(painter);
+        if (offsets.isIdentity) continue;
+        final boxes = painter.inlinePlaceholderBoxes;
+        if (boxes == null) continue;
+        final shift = origin + Offset(0, top);
+        final local = range == null
+            ? null
+            : TextRange(
+                start: range.start - textStart,
+                end: range.end - textStart,
+              );
+        for (final entry in offsets.entries) {
+          final embed = entry.span.embed;
+          if (!embed.visible || entry.placeholderIndex >= boxes.length) {
+            continue;
+          }
+          final rect = entry.span
+              .paintRectFor(boxes[entry.placeholderIndex].toRect())
+              .shift(shift);
+          // A spoiler hides its embeds the way it hides glyphs (0 hidden, the
+          // ripple's progress while revealing).
+          final opacity = embedOpacityAt(rect);
+          if (opacity > 0) {
+            embed.paint(
+                canvas, rect, _paintContextFor(painter, entry, opacity));
+          }
+          if (local != null && entry.isCoveredBy(local)) {
+            canvas.drawRect(rect, highlight);
+          }
+        }
+      }
+      if (panned) canvas.restore();
+    }
+  }
+
+  // The context of the last embed painted: a run of embeds in one colour and
+  // opacity (nearly always all of them) shares one value instead of one each
+  // per frame.
+  MarkdownInlineEmbedPaintContext? _paintContext;
+
+  // The tint is the colour of the text the embed sits in: its own span's, else
+  // the paragraph's.
+  MarkdownInlineEmbedPaintContext _paintContextFor(
+    TextPainter painter,
+    MarkdownEmbedEntry entry,
+    double opacity,
+  ) {
+    final color = entry.span.style?.color ?? painter.text?.style?.color;
+    final cached = _paintContext;
+    if (cached != null && cached.tint == color && cached.opacity == opacity) {
+      return cached;
+    }
+    return _paintContext =
+        MarkdownInlineEmbedPaintContext(tint: color, opacity: opacity);
+  }
+
+  /// Sets [MarkdownInlineEmbed.visible] of every embed to whether its block is
+  /// within the painted height [size] (the guard [paint] uses). Called after
+  /// layout, not while painting: an embed may react to the change by
+  /// scheduling a repaint, which a paint must not.
+  void syncEmbedVisibility(Size size) {
+    final host = _embeds;
+    if (host == null || host.isEmpty || _needsLayout || _isEmpty) return;
+    final overflow = _size.height > size.height;
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final visible = !(overflow && _blockOffsets[i] > size.height);
+      for (final (painter, _, _) in _textFragments(_blockPainters[i])) {
+        for (final entry in MarkdownEmbedOffsets.of(painter).entries) {
+          final embed = entry.span.embed;
+          if (embed.visible != visible) embed.visible = visible;
+        }
+      }
+    }
+  }
+
+  /// Hides every embed, for a painter that is leaving the tree.
+  void hideEmbeds() => _embeds?.setAllVisible(visible: false);
+
+  /// How many times [layout] ran. Exposed for tests asserting that an embed
+  /// never lays the document out again.
+  @visibleForTesting
+  int get debugLayoutCount => _layoutCount;
+  int _layoutCount = 0;
 
   /// Whether a glyph [Picture] is currently cached for [size].
   /// Exposed for tests asserting pan does not invalidate the cache.

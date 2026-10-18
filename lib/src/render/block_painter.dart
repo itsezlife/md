@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:meta/meta.dart' as meta show internal;
 
 import 'embed_offset_map.dart';
 import 'span_builder.dart';
@@ -73,6 +74,21 @@ abstract interface class HorizontallyPannableBlock implements BlockPainter {
   /// Call even when [canPanHorizontally] is false for non-overflow reasons.
   /// Clearing the offset here clears the remount store on the next sync.
   void restoreScrollOffset(double offset);
+}
+
+/// A block that clips and translates its content by a pan when [paint]ing it.
+///
+/// What the render object draws live over the glyph [Picture] (inline embeds)
+/// has to land where the glyphs did, so it asks the block for the same
+/// transform instead of knowing how a pan is kept.
+@meta.internal
+abstract interface class PannedContent {
+  /// When the block is panning, saves [canvas], applies the clip to the
+  /// block's viewport and the translation by the pan that [BlockPainter.paint]
+  /// applies to its content (for a block whose top is at [offset]), and
+  /// returns true: the caller restores the canvas. Otherwise does nothing and
+  /// returns false.
+  bool pushPanTransform(Canvas canvas, double offset);
 }
 
 /// A [BlockPainter] that supports text selection. Coordinates are local to the
