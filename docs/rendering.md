@@ -331,11 +331,18 @@ revealed.
   off (`MarkdownSpoilerController.animate = false`, or
   `MediaQuery.disableAnimationsOf`) reveals in the same frame.
 - **Taps.** A pointer that goes down on a hidden spoiler is not forwarded to the
-  blocks: the tap reveals (if it comes up within the pan slop), so
-  `onLinkTap` / `onMentionTap` do not fire for a link under a spoiler. The same
-  tap after the reveal does. `MarkdownSpoilerController.reveal(documentId)` with
-  no origin is the entry for a text selection that enters a spoiler; it ripples
-  from the middle of the spoilers.
+  blocks: the tap reveals (if it comes up within the pan slop and within
+  `MarkdownSpoilerController.tapTimeout`, `kLongPressTimeout` by default, on the
+  pointer's own timestamps), so `onLinkTap` / `onMentionTap` do not fire for a
+  link under a spoiler. The same tap after the reveal does. A press held past the
+  timeout is a long press, the host's gesture, and reveals nothing (`null` puts
+  no limit on a hold: the desktop mouse click). `tapReveals = false` skips the
+  reveal while the pointer is still absorbed, for a host whose taps mean
+  something else (message selection: Android leaves the spoiler hidden there);
+  both settings are read at the pointer up.
+  `MarkdownSpoilerController.reveal(documentId)` with no origin is the entry for
+  a text selection that enters a spoiler; it ripples from the middle of the
+  spoilers.
 - **Embeds.** `MarkdownPainter.embedOpacityAt(rect)` is the spoiler's half of the
   inline embed contract: 0 under a hidden spoiler, the ripple's progress while
   revealing, 1 elsewhere.

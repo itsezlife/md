@@ -103,7 +103,7 @@ class MarkdownRenderObject extends RenderBox
   Ticker? _rippleTicker;
 
   /// A pointer that went down on a hidden spoiler and has not come up yet.
-  ({int pointer, Offset local})? _spoilerTap;
+  ({int pointer, Offset local, Duration downAt})? _spoilerTap;
 
   /// The controller this surface is counted by as a mover of dust, and so the
   /// one whose frames it repaints on. Null while it is not one.
@@ -437,19 +437,28 @@ class MarkdownRenderObject extends RenderBox
           _spoilerTap = null;
           return false;
         }
-        _spoilerTap = (pointer: event.pointer, local: event.localPosition);
+        _spoilerTap = (
+          pointer: event.pointer,
+          local: event.localPosition,
+          downAt: event.timeStamp,
+        );
         return true;
       case PointerUpEvent():
         final tap = _spoilerTap;
         if (tap == null || tap.pointer != event.pointer) return false;
         _spoilerTap = null;
         final slop = computePanSlop(event.kind, null);
-        if ((event.localPosition - tap.local).distance <= slop &&
+        final controller = _spoilerController;
+        // A press held past the timeout is a long press: the host's gesture
+        // took it (a menu, a selection), and its release is not a tap.
+        final timeout = controller?.tapTimeout;
+        final held = timeout != null && event.timeStamp - tap.downAt > timeout;
+        if (controller != null &&
+            controller.tapReveals &&
+            !held &&
+            (event.localPosition - tap.local).distance <= slop &&
             _painter.hiddenSpoilerAt(event.localPosition)) {
-          _spoilerController?.reveal(
-            _spoilerDocumentId!,
-            origin: event.position,
-          );
+          controller.reveal(_spoilerDocumentId!, origin: event.position);
         }
         return true;
       case PointerCancelEvent():
@@ -618,7 +627,9 @@ class MarkdownRenderObject extends RenderBox
       final custom = resolver(local, blockIndex, block);
       if (custom != null) return custom;
     }
-    if (_painter.isLinkAtLocal(local) || _painter.hiddenSpoilerAt(local)) {
+    if (_painter.isLinkAtLocal(local) ||
+        (_painter.hiddenSpoilerAt(local) &&
+            (_spoilerController?.tapReveals ?? true))) {
       return SystemMouseCursors.click;
     }
     if (_controller != null && _painter.isSelectableAtLocal(local)) {

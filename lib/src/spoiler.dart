@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/painting.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
@@ -22,6 +23,16 @@ import 'package:meta/meta.dart' as meta show internal;
 /// does not (that is an iOS-only behaviour, and it would fight the engine's
 /// text selection); [hide] exists for a host that decides otherwise, or that
 /// forgets a document.
+///
+/// **Taps.** A tap on a hidden spoiler reveals its document, from the tap
+/// point, and is absorbed: a link or embed under the spoiler does not fire. The
+/// host tunes that with two settings the controller holds for every body that
+/// shares it. [tapReveals] turns the reveal off while the host takes taps for
+/// itself (a message selection, where a tap toggles the row and Android leaves
+/// the spoiler hidden); the tap is still absorbed. [tapTimeout] bounds how long
+/// the press may last: a press held past it is a long press, which belongs to
+/// the host's own gesture (the message menu, a selection), so its release
+/// reveals nothing. Both are read when the pointer comes up.
 ///
 /// **The dust clock.** Hidden spoilers are covered by moving particles. The
 /// package owns no clock for them: the host calls [advance] with a monotonic
@@ -63,6 +74,32 @@ class MarkdownSpoilerController extends ChangeNotifier {
     _animate = value;
     notifyListeners();
   }
+
+  bool _tapReveals = true;
+
+  /// Whether a tap on a hidden spoiler reveals its document. True by default.
+  ///
+  /// A host in a mode where a tap means something else (a message selection)
+  /// sets it false. The tap is still absorbed, so nothing under the spoiler
+  /// fires; only the reveal is skipped. [reveal] and [hide] are not affected,
+  /// and a selection that enters a spoiler still reveals through the host.
+  bool get tapReveals => _tapReveals;
+  set tapReveals(bool value) {
+    if (_tapReveals == value) return;
+    _tapReveals = value;
+    // The hand cursor over a hidden spoiler follows it from the next move.
+    notifyListeners();
+  }
+
+  /// The longest press that still counts as a tap on a hidden spoiler; a press
+  /// held longer reveals nothing. [kLongPressTimeout] by default, the point
+  /// where Android (`ViewConfiguration.getLongPressTimeout`) and Qt touch
+  /// (`startDragTime`) start a long press. Telegram iOS starts it at 0.3 s.
+  /// Null puts no limit on a hold, the desktop mouse click.
+  ///
+  /// Measured on the pointer's own timestamps, so it holds under a stalled
+  /// frame; a host that changes it does not have to rebuild anything.
+  Duration? tapTimeout = kLongPressTimeout;
 
   // --- Dust clock -----------------------------------------------------------
 

@@ -293,6 +293,220 @@ void main() {
     });
   });
 
+  group('MarkdownWidget spoiler tap rules', () {
+    /// A press and release at [point], [held] apart by the pointer's own
+    /// clock: a pointer event carries the time the engine stamped it with, so
+    /// a test sets the hold without waiting for it.
+    Future<void> press(
+      WidgetTester tester,
+      Offset point, {
+      Duration held = Duration.zero,
+    }) async {
+      final pointer = TestPointer(1);
+      await tester.sendEventToBinding(pointer.down(point));
+      await tester.sendEventToBinding(pointer.up(timeStamp: held));
+    }
+
+    test('by default a tap reveals and a hold ends at the long press', () {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+
+      expect(spoilers.tapReveals, isTrue);
+      expect(spoilers.tapTimeout, kLongPressTimeout);
+    });
+
+    testWidgets('with tapReveals off a tap on a hidden spoiler reveals nothing',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController()..tapReveals = false;
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      await tester.tapAt(_spoilerCenter(tester, 'a'));
+      await tester.pumpAndSettle();
+
+      expect(spoilers.isRevealed('a'), isFalse);
+      expect(_painterOf(tester, 'a').spoilerPhase, isA<SpoilerPhase$Hidden>());
+    });
+
+    testWidgets('with tapReveals off the tap is still absorbed by the spoiler',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController()..tapReveals = false;
+      addTearDown(spoilers.dispose);
+      final taps = <String>[];
+      await tester.pumpWidget(
+        _body(
+          [('a', _link)],
+          spoilers,
+          theme: _theme(onLinkTap: (title, url) => taps.add(url)),
+        ),
+      );
+
+      await tester.tapAt(_spoilerCenter(tester, 'a'));
+      await tester.pumpAndSettle();
+
+      expect(taps, isEmpty);
+    });
+
+    testWidgets('turning tapReveals back on lets the next tap reveal',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController()..tapReveals = false;
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+      final point = _spoilerCenter(tester, 'a');
+      await tester.tapAt(point);
+
+      spoilers.tapReveals = true;
+      await tester.tapAt(point);
+
+      expect(spoilers.isRevealed('a'), isTrue);
+    });
+
+    testWidgets('tapReveals is read when the pointer comes up', (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      // The host enters message selection while the finger is down.
+      final pointer = TestPointer(1);
+      await tester.sendEventToBinding(
+        pointer.down(_spoilerCenter(tester, 'a')),
+      );
+      spoilers.tapReveals = false;
+      await tester.sendEventToBinding(pointer.up());
+
+      expect(spoilers.isRevealed('a'), isFalse);
+    });
+
+    testWidgets('the hand cursor over a hidden spoiler follows tapReveals',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+      final surface = tester.renderObject<MarkdownRenderObject>(
+        find.byKey(_key('a')),
+      );
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+
+      await mouse.moveTo(_spoilerCenter(tester, 'a'));
+      expect(surface.cursor, SystemMouseCursors.click);
+
+      spoilers.tapReveals = false;
+      await mouse.moveTo(_spoilerCenter(tester, 'a') + const Offset(1, 0));
+      expect(surface.cursor, MouseCursor.defer);
+    });
+
+    testWidgets('programmatic reveal and hide ignore tapReveals',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController()..tapReveals = false;
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      spoilers.reveal('a');
+      await tester.pumpAndSettle();
+      expect(
+          _painterOf(tester, 'a').spoilerPhase, isA<SpoilerPhase$Revealed>());
+
+      spoilers.hide('a');
+      await tester.pump();
+      expect(_painterOf(tester, 'a').spoilerPhase, isA<SpoilerPhase$Hidden>());
+    });
+
+    testWidgets('a press up to the long-press timeout reveals', (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      await press(
+        tester,
+        _spoilerCenter(tester, 'a'),
+        held: kLongPressTimeout,
+      );
+
+      expect(spoilers.isRevealed('a'), isTrue);
+    });
+
+    testWidgets('a press held past the long-press timeout reveals nothing',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      await press(
+        tester,
+        _spoilerCenter(tester, 'a'),
+        held: kLongPressTimeout + const Duration(milliseconds: 1),
+      );
+
+      expect(spoilers.isRevealed('a'), isFalse);
+    });
+
+    testWidgets('a long hold does not spend the tap: the next tap reveals',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+      final point = _spoilerCenter(tester, 'a');
+      await press(tester, point, held: const Duration(seconds: 2));
+
+      await tester.tapAt(point);
+
+      expect(spoilers.isRevealed('a'), isTrue);
+    });
+
+    testWidgets('a shorter tapTimeout is honoured', (tester) async {
+      final spoilers = MarkdownSpoilerController()
+        ..tapTimeout = const Duration(milliseconds: 300);
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      await press(
+        tester,
+        _spoilerCenter(tester, 'a'),
+        held: const Duration(milliseconds: 400),
+      );
+
+      expect(spoilers.isRevealed('a'), isFalse);
+    });
+
+    testWidgets('a null tapTimeout puts no limit on a hold', (tester) async {
+      final spoilers = MarkdownSpoilerController()..tapTimeout = null;
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      await press(
+        tester,
+        _spoilerCenter(tester, 'a'),
+        held: const Duration(seconds: 30),
+      );
+
+      expect(spoilers.isRevealed('a'), isTrue);
+    });
+
+    testWidgets('a held press on a spoiler still absorbs the pointer',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      final taps = <String>[];
+      await tester.pumpWidget(
+        _body(
+          [('a', _link)],
+          spoilers,
+          theme: _theme(onLinkTap: (title, url) => taps.add(url)),
+        ),
+      );
+
+      await press(
+        tester,
+        _spoilerCenter(tester, 'a'),
+        held: const Duration(seconds: 1),
+      );
+
+      expect(taps, isEmpty);
+    });
+  });
+
   group('MarkdownWidget spoiler reveal motion', () {
     testWidgets('the ripple runs for 300 ms from the tap point',
         (tester) async {
