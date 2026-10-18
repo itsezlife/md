@@ -128,7 +128,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        expect(controller.getText(), expected);
+        expect(controller.getText(MarkdownSelectionFormatter.plain), expected);
       }
     });
 

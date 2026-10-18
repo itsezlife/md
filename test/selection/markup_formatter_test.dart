@@ -157,7 +157,8 @@ void main() {
 
     test('differs from the default plain formatter', () {
       final markup = _markup('# Heading\n\n- a\n- b');
-      final plain = MarkdownSelectionController()
+      final plain = MarkdownSelectionController(
+          formatter: MarkdownSelectionFormatter.plain)
         ..setDocuments(<MarkdownDocumentRef>[
           MarkdownDocumentRef(
               id: 'doc', model: Markdown.fromString('# Heading\n\n- a\n- b')),

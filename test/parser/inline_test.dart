@@ -330,5 +330,39 @@ void main() => group('Inline parsing', () {
         test('escaped underscore is literal', () {
           expect(_visible(r'a\_b\_c'), 'a_b_c');
         });
+
+        // The markers a copy writes (`~~`, `||`, `==`) and the line-start
+        // block marker `>` read back as text when backslash-escaped.
+        test('escaped strike, spoiler and highlight markers are literal', () {
+          expect(_spans(r'\~\~x\~\~').single.style, MD$Style.none);
+          expect(_visible(r'\~\~x\~\~'), '~~x~~');
+          expect(_visible(r'\|\|x\|\|'), '||x||');
+          expect(_visible(r'\=\=x\=\='), '==x==');
+        });
+
+        test('escaped quote marker is a paragraph, not a quote', () {
+          final md = markdownDecoder.convert(r'\> not a quote');
+          expect(md.blocks.single, isA<MD$Paragraph>());
+          expect(_visible(r'\> not a quote'), '> not a quote');
+        });
+
+        test('a closer after an escaped marker of its own kind still closes',
+            () {
+          expect(_spans(r'**a\***').single.style, MD$Style.bold);
+          expect(_visible(r'**a\***'), 'a*');
+          expect(_spans(r'__b\___').single.style, MD$Style.underline);
+          expect(_visible(r'__b\___'), 'b_');
+        });
+
+        test('an escaped bang does not turn a link into an image', () {
+          final spans = _spans(r'wow\![x](https://a.b)');
+          expect(spans.map((s) => s.text), <String>['wow!', 'x']);
+          expect(spans.last.style, MD$Style.link);
+        });
+
+        test('a bang after an escaped backslash still makes an image', () {
+          final spans = _spans(r'a\\![x](https://a.b)');
+          expect(spans.last.style, MD$Style.image);
+        });
       });
     });
