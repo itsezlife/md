@@ -131,6 +131,23 @@ void main() {
       expect(spoilers.isRevealed('a'), isFalse);
     });
 
+    testWidgets('a pointer up after the widget left the tree is ignored',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      // A host that remounts the body between down and up (a long press that
+      // starts a selection does): the up still reaches the disposed render
+      // object through the hit-test path it was recorded on.
+      final gesture = await tester.startGesture(_spoilerCenter(tester, 'a'));
+      await tester.pumpWidget(const SizedBox());
+      await gesture.up();
+
+      expect(tester.takeException(), isNull);
+      expect(spoilers.isRevealed('a'), isFalse);
+    });
+
     testWidgets('revealing document A leaves document B hidden',
         (tester) async {
       final spoilers = MarkdownSpoilerController();
