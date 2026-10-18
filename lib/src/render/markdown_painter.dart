@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
+import '../inline_embed.dart';
 import '../markdown.dart';
 import '../nodes.dart';
 import '../selection.dart';
@@ -24,6 +25,7 @@ import 'blocks/paragraph.dart';
 import 'blocks/quote.dart';
 import 'blocks/spacer.dart';
 import 'blocks/table.dart';
+import 'inline_embeds.dart';
 
 /// A painter for rendering markdown content via blocks and spans.
 @meta.internal
@@ -32,12 +34,31 @@ class MarkdownPainter {
   MarkdownPainter({
     required Markdown markdown,
     required MarkdownThemeData theme,
+    MarkdownInlineEmbedResolver? embedResolver,
+    double devicePixelRatio = 1.0,
   })  : _markdown = markdown,
         _theme = theme,
+        _embeds = _hostFor(embedResolver, devicePixelRatio),
         _isEmpty = markdown.isEmpty,
         _size = Size.zero {
     _rebuild();
   }
+
+  /// Owns every embed the block painters resolved; null when the body has no
+  /// resolver. Embeds are disposed whenever the block painters that reserved
+  /// room for them are: on a rebuild and on [dispose].
+  MarkdownEmbedHost? _embeds;
+
+  static MarkdownEmbedHost? _hostFor(
+    MarkdownInlineEmbedResolver? resolver,
+    double devicePixelRatio,
+  ) =>
+      resolver == null
+          ? null
+          : MarkdownEmbedHost(
+              resolver: resolver,
+              devicePixelRatio: devicePixelRatio,
+            );
 
   /// Is the markdown entity empty?
   bool get isEmpty => _isEmpty;
@@ -109,32 +130,39 @@ class MarkdownPainter {
   static BlockPainter _nestedBlockBuilder(
     MD$Block block,
     MarkdownThemeData theme,
+    MarkdownEmbedHost? embeds,
   ) =>
-      theme.builder?.call(block, theme) ?? _defaultBlockBuilder(block, theme);
+      theme.builder?.call(block, theme) ??
+      _defaultBlockBuilder(block, theme, embeds);
 
   static BlockPainter _defaultBlockBuilder(
     MD$Block block,
     MarkdownThemeData theme,
+    MarkdownEmbedHost? embeds,
   ) =>
       block.map<BlockPainter>(
         paragraph: (p) => BlockPainter$Paragraph(
           spans: p.spans,
           theme: theme,
+          inlineEmbeds: embeds,
         ),
         heading: (h) => BlockPainter$Heading(
           level: h.level,
           spans: h.spans,
           theme: theme,
+          inlineEmbeds: embeds,
         ),
         quote: (q) => BlockPainter$Quote(
           spans: q.spans,
           indent: q.indent,
           theme: theme,
+          inlineEmbeds: embeds,
           children: [
             for (final child in q.blocks)
               _nestedBlockBuilder(
                 child,
                 BlockPainter$Quote.inheritFrom(theme, child),
+                embeds,
               ),
           ],
         ),
@@ -146,6 +174,7 @@ class MarkdownPainter {
         list: (l) => BlockPainter$List(
           items: l.items,
           theme: theme,
+          inlineEmbeds: embeds,
         ),
         divider: (d) => BlockPainter$Divider(
           theme: theme,
@@ -155,13 +184,16 @@ class MarkdownPainter {
           rows: t.rows,
           alignments: t.alignments,
           theme: theme,
+          inlineEmbeds: embeds,
         ),
         alert: (a) => BlockPainter$Alert(
           alert: a.alert,
           spans: a.spans,
           theme: theme,
+          inlineEmbeds: embeds,
           children: [
-            for (final child in a.blocks) _nestedBlockBuilder(child, theme),
+            for (final child in a.blocks)
+              _nestedBlockBuilder(child, theme, embeds),
           ],
         ),
         spacer: (s) => BlockPainter$Spacer(
@@ -183,19 +215,22 @@ class MarkdownPainter {
     for (final painter in _blockPainters) {
       painter.dispose();
     }
+    _embeds?.disposeAll();
     onPaintersRebuilt?.call();
     _needsLayout = true; // Mark that layout needs to be recalculated.
     _size = Size.zero; // Reset size before rebuilding.
     final filter = _theme.blockFilter;
-    final builder = _theme.builder ?? _defaultBlockBuilder;
+    final embeds = _embeds;
     final blocks = _markdown.blocks;
     final painters = <BlockPainter>[];
     final sources = <int>[];
     for (var i = 0; i < blocks.length; i++) {
       final block = blocks[i];
       if (filter != null && !filter(block)) continue;
-      painters
-          .add(builder(block, _theme) ?? _defaultBlockBuilder(block, _theme));
+      painters.add(
+        _theme.builder?.call(block, _theme) ??
+            _defaultBlockBuilder(block, _theme, embeds),
+      );
       sources.add(i);
     }
     _blockPainters = painters;
@@ -566,15 +601,46 @@ class MarkdownPainter {
     return const <Rect>[];
   }
 
+  /// The rendered ranges of every block that a selection boundary never
+  /// splits (the alt text of each inline embed), by source block index.
+  /// Empty when no block has an embed. Only valid after [layout].
+  Map<int, List<TextRange>> atomicRanges() {
+    Map<int, List<TextRange>>? out;
+    for (var i = 0; i < _blockPainters.length; i++) {
+      final painter = _blockPainters[i];
+      final ranges = switch (painter) {
+        SelectableTextBlock() => painter.atomicRanges,
+        MultiPainterSelectable() => painter.atomicRanges,
+        _ => const <TextRange>[],
+      };
+      if (ranges.isEmpty) continue;
+      (out ??= <int, List<TextRange>>{})[_sourceIndices[i]] = ranges;
+    }
+    return out ?? const <int, List<TextRange>>{};
+  }
+
   /// Update the painter with new values.
   /// If the values are the same,
   /// no update is required and the method returns false.
+  ///
+  /// A different [embedResolver] or [devicePixelRatio] rebuilds the blocks:
+  /// the embeds they hold were made for the old ones.
   bool update({
     required Markdown markdown,
     required MarkdownThemeData theme,
+    MarkdownInlineEmbedResolver? embedResolver,
+    double devicePixelRatio = 1.0,
   }) {
-    if (identical(_markdown, markdown) && identical(_theme, theme))
+    final previousEmbeds = _embeds;
+    final embedsChanged = !identical(previousEmbeds?.resolver, embedResolver) ||
+        (previousEmbeds != null &&
+            previousEmbeds.devicePixelRatio != devicePixelRatio);
+    if (identical(_markdown, markdown) &&
+        identical(_theme, theme) &&
+        !embedsChanged) {
       return false;
+    }
+    if (embedsChanged) _embeds = _hostFor(embedResolver, devicePixelRatio);
     // Harvest against the *current* model before swapping — otherwise
     // content-anchored remap would key pans by the new blocks' text.
     final oldBlocks = _markdown.blocks;
@@ -585,6 +651,8 @@ class MarkdownPainter {
     _theme = theme;
     _isEmpty = markdown.isEmpty;
     _rebuild(preHarvested: harvested, oldBlocks: oldBlocks);
+    // The old host's embeds are in painters that _rebuild just disposed.
+    if (embedsChanged) previousEmbeds?.disposeAll();
     return true; // Indicate that the painter was updated.
   }
 
@@ -873,5 +941,6 @@ class MarkdownPainter {
       painter.dispose();
     }
     _blockPainters = const <BlockPainter>[];
+    _embeds?.disposeAll();
   }
 }

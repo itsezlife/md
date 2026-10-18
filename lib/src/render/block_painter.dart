@@ -9,6 +9,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'embed_offset_map.dart';
+
 /// A class for painting blocks in markdown.
 /// You can implement this interface to create custom block painters.
 abstract interface class BlockPainter {
@@ -143,8 +145,14 @@ mixin SelectableTextBlock implements SelectableBlockPainter {
   @override
   bool get selectionHighlightAboveCachedContent => false;
 
+  // The paragraph's embeds: its painter text has one U+FFFC for each, while
+  // every offset this mixin takes or returns is in the rendered text, where
+  // the embed is its alt text. The identity for a paragraph with none.
+  MarkdownEmbedOffsets get _offsets =>
+      MarkdownEmbedOffsets.of(selectionPainter);
+
   @override
-  String get renderedText => selectionPainter.plainText;
+  String get renderedText => _offsets.renderedText(selectionPainter.plainText);
 
   @override
   int offsetForLocalPosition(Offset local) =>
@@ -152,15 +160,17 @@ mixin SelectableTextBlock implements SelectableBlockPainter {
 
   @override
   (int, TextAffinity) positionAndAffinityForLocal(Offset local) {
-    final position =
-        selectionPainter.getPositionForOffset(local - selectionOrigin);
-    return (position.offset, position.affinity);
+    return _renderedPosition(selectionPainter, local - selectionOrigin);
   }
+
+  /// The rendered ranges a selection boundary never splits: the alt text of
+  /// each inline embed in this block.
+  List<TextRange> get atomicRanges => _atomicRangesOf(_offsets, 0);
 
   @override
   Rect caretRectFor(int offset, TextAffinity affinity) {
-    final len = selectionPainter.plainText.length;
-    final o = offset.clamp(0, len);
+    final len = _offsets.renderedLength(selectionPainter.plainText.length);
+    final o = _offsets.toPainter(offset.clamp(0, len));
     final position = TextPosition(offset: o, affinity: affinity);
     final caret = selectionPainter.getOffsetForCaret(position, Rect.zero);
     final height = selectionPainter.getFullHeightForCaret(position, Rect.zero);
@@ -173,17 +183,24 @@ mixin SelectableTextBlock implements SelectableBlockPainter {
   }
 
   @override
-  List<Rect> boxesForRange(int start, int end) => selectionPainter
-      .getBoxesForSelection(TextSelection(baseOffset: start, extentOffset: end))
-      .map((box) => box.toRect().shift(selectionOrigin))
-      .toList(growable: false);
+  List<Rect> boxesForRange(int start, int end) {
+    final snapped = _offsets.snap(TextRange(start: start, end: end));
+    return selectionPainter
+        .getBoxesForSelection(
+          TextSelection(
+            baseOffset: _offsets.toPainter(snapped.start),
+            extentOffset: _offsets.toPainter(snapped.end, end: true),
+          ),
+        )
+        .map((box) => box.toRect().shift(selectionOrigin))
+        .toList(growable: false);
+  }
 
   @override
-  TextRange wordBoundaryForLocal(Offset local) {
-    final offset =
-        selectionPainter.getPositionForOffset(local - selectionOrigin).offset;
-    return selectionPainter.getWordBoundary(TextPosition(offset: offset));
-  }
+  TextRange wordBoundaryForLocal(Offset local) => _wordBoundaryIn(
+        selectionPainter,
+        local - selectionOrigin,
+      );
 
   @override
   bool isLinkAtLocal(Offset local) =>
@@ -215,8 +232,14 @@ class SelectableFragment {
   /// Index of this run's first character in the block's rendered text.
   final int textStart;
 
-  /// Length of this run's text.
-  int get length => painter.plainText.length;
+  /// The run's text as selection and copy see it: [painter]'s text with each
+  /// inline embed's placeholder replaced by its alt text.
+  String get renderedText => _offsets.renderedText(painter.plainText);
+
+  /// Length of this run's text, in the same terms as [renderedText].
+  int get length => _offsets.renderedLength(painter.plainText.length);
+
+  MarkdownEmbedOffsets get _offsets => MarkdownEmbedOffsets.of(painter);
 
   /// One-past-the-last index of this run's text in the block's rendered text.
   int get textEnd => textStart + length;
@@ -251,17 +274,24 @@ mixin MultiPainterSelectable implements SelectableBlockPainter {
         (local.dx - fragment.origin.dx).clamp(0.0, fragment.painter.width);
     final dy =
         (local.dy - fragment.origin.dy).clamp(0.0, fragment.painter.height);
-    final position = fragment.painter.getPositionForOffset(Offset(dx, dy));
-    final offset =
-        fragment.textStart + position.offset.clamp(0, fragment.length);
-    return (offset, position.affinity);
+    final (rendered, affinity) =
+        _renderedPosition(fragment.painter, Offset(dx, dy));
+    return (fragment.textStart + rendered.clamp(0, fragment.length), affinity);
   }
+
+  /// The rendered ranges a selection boundary never splits: the alt text of
+  /// each inline embed in this block.
+  List<TextRange> get atomicRanges => <TextRange>[
+        for (final fragment in fragments)
+          ..._atomicRangesOf(fragment._offsets, fragment.textStart),
+      ];
 
   @override
   Rect caretRectFor(int offset, TextAffinity affinity) {
     final fragment = _fragmentForOffset(offset);
     if (fragment == null) return Rect.zero;
-    final local = (offset - fragment.textStart).clamp(0, fragment.length);
+    final local = fragment._offsets
+        .toPainter((offset - fragment.textStart).clamp(0, fragment.length));
     final position = TextPosition(offset: local, affinity: affinity);
     final caret = fragment.painter.getOffsetForCaret(position, Rect.zero);
     final height = fragment.painter.getFullHeightForCaret(position, Rect.zero);
@@ -289,8 +319,14 @@ mixin MultiPainterSelectable implements SelectableBlockPainter {
       final localEnd =
           end.clamp(fragment.textStart, fragment.textEnd) - fragment.textStart;
       if (localEnd <= localStart) continue;
+      final snapped =
+          fragment._offsets.snap(TextRange(start: localStart, end: localEnd));
       final boxes = fragment.painter.getBoxesForSelection(
-          TextSelection(baseOffset: localStart, extentOffset: localEnd));
+        TextSelection(
+          baseOffset: fragment._offsets.toPainter(snapped.start),
+          extentOffset: fragment._offsets.toPainter(snapped.end, end: true),
+        ),
+      );
       for (final box in boxes) {
         out.add(box.toRect().shift(fragment.origin));
       }
@@ -302,9 +338,7 @@ mixin MultiPainterSelectable implements SelectableBlockPainter {
   TextRange wordBoundaryForLocal(Offset local) {
     final fragment = _nearestFragment(local);
     if (fragment == null) return const TextRange(start: 0, end: 0);
-    final inner =
-        fragment.painter.getPositionForOffset(local - fragment.origin).offset;
-    final wb = fragment.painter.getWordBoundary(TextPosition(offset: inner));
+    final wb = _wordBoundaryIn(fragment.painter, local - fragment.origin);
     // Keep the word within its own fragment (never cross a cell/item boundary).
     return TextRange(
       start: fragment.textStart + wb.start.clamp(0, fragment.length),
@@ -354,6 +388,60 @@ mixin MultiPainterSelectable implements SelectableBlockPainter {
     }
     return best;
   }
+}
+
+/// The rendered offset and affinity at [local], a point in [painter]'s own
+/// coordinates.
+///
+/// Over an embed (the room it reserved or the square it is drawn into, which
+/// pokes out above and below) the offset is *inside* its alt text, whichever
+/// half of the embed the point is in, so the embed takes part in the selection
+/// whichever way the drag goes: the selection snaps a first boundary down to
+/// the alt's start and a last boundary up to its end. An alt of fewer than two
+/// code units has no inside, and the point resolves to the nearer edge.
+(int, TextAffinity) _renderedPosition(TextPainter painter, Offset local) {
+  final offsets = MarkdownEmbedOffsets.of(painter);
+  final entry = offsets.entryAt(painter, local);
+  if (entry == null) {
+    final position = painter.getPositionForOffset(local);
+    return (offsets.toRendered(position.offset), position.affinity);
+  }
+  if (entry.alt.length >= 2) {
+    return (entry.renderedStart + 1, TextAffinity.downstream);
+  }
+  final box = painter.inlinePlaceholderBoxes![entry.placeholderIndex];
+  final nearIsLeft = local.dx < box.toRect().center.dx;
+  final before = nearIsLeft == (box.direction == TextDirection.ltr);
+  return before
+      ? (entry.renderedStart, TextAffinity.downstream)
+      : (entry.renderedEnd, TextAffinity.upstream);
+}
+
+/// The alt text ranges of [offsets], moved [shift] code units later.
+List<TextRange> _atomicRangesOf(MarkdownEmbedOffsets offsets, int shift) =>
+    <TextRange>[
+      for (final entry in offsets.entries)
+        if (entry.alt.length >= 2)
+          TextRange(
+            start: shift + entry.renderedStart,
+            end: shift + entry.renderedEnd,
+          ),
+    ];
+
+/// The word range, in rendered-text offsets, at [local] in [painter]. An embed
+/// is one word: its whole alt text.
+TextRange _wordBoundaryIn(TextPainter painter, Offset local) {
+  final offsets = MarkdownEmbedOffsets.of(painter);
+  final entry = offsets.entryAt(painter, local);
+  if (entry != null) {
+    return TextRange(start: entry.renderedStart, end: entry.renderedEnd);
+  }
+  final position = painter.getPositionForOffset(local);
+  final word = painter.getWordBoundary(TextPosition(offset: position.offset));
+  return TextRange(
+    start: offsets.toRendered(word.start),
+    end: offsets.toRendered(word.end),
+  );
 }
 
 /// Whether [local] (text-painter coordinates) lies inside any glyph line box
@@ -439,8 +527,15 @@ mixin ParagraphGestureHandler {
   @protected
   InlineSpan? hitTestInlineSpanWithPointerEvent(
       PointerEvent event, TextPainter painter) {
-    final pos = painter.getPositionForOffset(event.localPosition);
-    final span = painter.text?.getSpanForPosition(pos);
-    return span;
+    return inlineSpanAt(painter, event.localPosition);
   }
+}
+
+/// The [InlineSpan] under [local] in [painter]: the embed's placeholder when
+/// [local] is in an embed's box, which the painter's own answer would miss in
+/// the half of the box nearer the text after it.
+InlineSpan? inlineSpanAt(TextPainter painter, Offset local) {
+  final entry = MarkdownEmbedOffsets.of(painter).entryAt(painter, local);
+  if (entry != null) return entry.span;
+  return painter.text?.getSpanForPosition(painter.getPositionForOffset(local));
 }
