@@ -37,6 +37,7 @@ benchmarks run under `dart run`.
 | `nodes.dart` | `MD$*` immutable node tree, `MD$Style` bitmask, `.map()` dispatch | [parser](docs/parser.md) |
 | `markdown.dart` | `Markdown` model + `Markdown.fromString(...)` entry point | [parser](docs/parser.md) |
 | `theme.dart` | `MarkdownThemeData` (a `ThemeExtension`), `MarkdownTheme`; `builder`/`blockFilter`/`spanFilter` hooks | [rendering](docs/rendering.md) |
+| `inline_embed.dart` | Public inline embed contract (`MarkdownInlineEmbed`, resolver, target, metrics); the package knows no implementation | [rendering](docs/rendering.md#inline-embeds) |
 | `render.dart` | **re-export barrel** for `render/` (keeps `src/render.dart` imports working) | [rendering](docs/rendering.md) |
 | `render/block_painter.dart` | `BlockPainter` framework: interfaces + mixins (`SelectableTextBlock`, `MultiPainterSelectable`, `ParagraphGestureHandler`, `SelectableFragment`, `HorizontallyPannableBlock`) | [rendering](docs/rendering.md) |
 | `render/span_builder.dart` | `paragraphFromMarkdownSpans(...)` — the public span→`TextSpan` helper | [rendering](docs/rendering.md) |

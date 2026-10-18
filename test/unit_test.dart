@@ -12,7 +12,9 @@ import 'parser/math_test.dart' as math_test;
 import 'parser/parser_test.dart' as parser_test;
 import 'parser/regression_test.dart' as regression_test;
 import 'parser/streaming_test.dart' as streaming_test;
+import 'render/embed_offset_map_test.dart' as embed_offset_map_test;
 import 'render/horizontal_pan_test.dart' as horizontal_pan_test;
+import 'render/inline_embed_test.dart' as inline_embed_test;
 import 'selection/markup_formatter_test.dart' as markup_formatter_test;
 import 'selection/selection_autoscroll_target_test.dart'
     as selection_autoscroll_target_test;
@@ -48,6 +50,8 @@ void main() => group('Unit', () {
       theme_test.main();
       mention_paint_test.main();
       horizontal_pan_test.main();
+      embed_offset_map_test.main();
+      inline_embed_test.main();
       selection_test.main();
       markup_formatter_test.main();
       selection_widget_test.main();

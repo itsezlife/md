@@ -11,6 +11,7 @@ import 'package:flutter/rendering.dart';
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
+import '../inline_embeds.dart';
 import '../span_builder.dart';
 
 /// A class for painting a GitHub-style alert (admonition) block in markdown.
@@ -25,6 +26,7 @@ class BlockPainter$Alert
     required List<MD$Span> spans,
     required this.theme,
     List<BlockPainter> children = const <BlockPainter>[],
+    MarkdownEmbedHost? inlineEmbeds,
   })  : _children = children,
         _accent = theme.alertColorFor(alert),
         _selectionHighlightAboveCachedContent = children.isNotEmpty
@@ -48,7 +50,11 @@ class BlockPainter$Alert
         ),
         _bodyPainter = children.isEmpty
             ? TextPainter(
-                text: paragraphFromMarkdownSpans(spans: spans, theme: theme),
+                text: paragraphFromMarkdownSpans(
+                  spans: spans,
+                  theme: theme,
+                  embeds: inlineEmbeds,
+                ),
                 textAlign: TextAlign.start,
                 textDirection: theme.textDirection,
                 textScaler: theme.textScaler,
@@ -187,10 +193,9 @@ class BlockPainter$Alert
       if (_hasBody) {
         bodyWidth = _bodyPainter.width;
         bodyHeight = _bodyPainter.height;
-        _fragments = <SelectableFragment>[
-          SelectableFragment(_bodyPainter, _bodyOrigin, 0),
-        ];
-        _renderedText = _bodyPainter.plainText;
+        final fragment = SelectableFragment(_bodyPainter, _bodyOrigin, 0);
+        _fragments = <SelectableFragment>[fragment];
+        _renderedText = fragment.renderedText;
       } else {
         _fragments = const <SelectableFragment>[];
         _renderedText = '';

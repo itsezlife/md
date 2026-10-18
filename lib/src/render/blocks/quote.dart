@@ -11,6 +11,7 @@ import 'package:flutter/rendering.dart';
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
+import '../inline_embeds.dart';
 import '../span_builder.dart';
 
 /// A class for painting a quote block in markdown.
@@ -29,6 +30,7 @@ class BlockPainter$Quote
     required this.indent,
     required this.theme,
     List<BlockPainter> children = const <BlockPainter>[],
+    MarkdownEmbedHost? inlineEmbeds,
   })  : _children = children,
         _selectionHighlightAboveCachedContent = children.isNotEmpty
             ? children.any(
@@ -43,6 +45,7 @@ class BlockPainter$Quote
                   spans: spans,
                   theme: theme,
                   textStyle: theme.quoteStyle ?? theme.textStyle,
+                  embeds: inlineEmbeds,
                 ),
                 textAlign: TextAlign.start,
                 textDirection: theme.textDirection,
@@ -188,10 +191,10 @@ class BlockPainter$Quote
         _leafPainter.size.width + _contentLeft,
         _leafPainter.size.height,
       );
-      _fragments = <SelectableFragment>[
-        SelectableFragment(_leafPainter, Offset(_contentLeft, 0), 0),
-      ];
-      _renderedText = _leafPainter.plainText;
+      final fragment =
+          SelectableFragment(_leafPainter, Offset(_contentLeft, 0), 0);
+      _fragments = <SelectableFragment>[fragment];
+      _renderedText = fragment.renderedText;
       _childOffsets = const <double>[];
       return _size;
     }

@@ -2,6 +2,7 @@ import 'dart:ui' show Color, Offset, Rect, TextAffinity, TextRange;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart' show LayerLink;
+import 'package:meta/meta.dart' as meta show internal;
 
 import 'markdown.dart';
 import 'nodes.dart';
@@ -852,7 +853,7 @@ class MarkdownSelectionController extends ChangeNotifier
   Rect? selectionEndpointGlobalRect({required bool base}) {
     final sel = _selection;
     if (sel == null || sel.isCollapsed) return null;
-    final pos = base ? sel.base : sel.extent;
+    final pos = _boundaryOf(sel, base: base);
     final affinity = base ? _baseAffinity : _extentAffinity;
     final surface = _surfaceFor(pos.documentId);
     if (surface == null) return null;
@@ -975,6 +976,67 @@ class MarkdownSelectionController extends ChangeNotifier
     _horizontalPanByDoc[documentId] = Map<int, double>.from(offsets);
   }
 
+  // --- atomic ranges (inline embeds) ---------------------------------------
+
+  /// Rendered ranges, per document and block, that a selection boundary never
+  /// splits: the alt text of each inline embed. Reported by the mounted surface
+  /// after layout and kept here, so a selection stays whole when its surface
+  /// is unmounted (list virtualization) and copy reads the same ranges.
+  final Map<Object, Map<int, List<TextRange>>> _atomicRanges =
+      <Object, Map<int, List<TextRange>>>{};
+
+  /// Records the atomic ranges of [documentId], replacing what it reported
+  /// before; an empty [byBlock] clears them. Called by the render object after
+  /// layout. Not part of the host API, and silent: it does not notify, the
+  /// reporting surface is repainting anyway.
+  @meta.internal
+  void reportAtomicRanges(
+    Object documentId,
+    Map<int, List<TextRange>> byBlock,
+  ) {
+    if (byBlock.isEmpty) {
+      _atomicRanges.remove(documentId);
+    } else {
+      _atomicRanges[documentId] = byBlock;
+    }
+  }
+
+  /// [offset] moved out of the atomic range of [documentId]'s [blockIndex] it
+  /// is strictly inside: down to its start for the first boundary of a
+  /// selection, up to its end for the last. Other offsets are returned as is.
+  int _snapAtomic(
+    Object documentId,
+    int blockIndex,
+    int offset, {
+    required bool up,
+  }) {
+    final ranges = _atomicRanges[documentId]?[blockIndex];
+    if (ranges == null) return offset;
+    for (final range in ranges) {
+      if (offset > range.start && offset < range.end) {
+        return up ? range.end : range.start;
+      }
+    }
+    return offset;
+  }
+
+  /// The [base] (or extent) of [sel] as a range boundary: snapped down when it
+  /// is the first end of the selection and up when it is the last. A collapsed
+  /// selection selects nothing, so it is not snapped.
+  MarkdownPosition _boundaryOf(MarkdownSelection sel, {required bool base}) {
+    final position = base ? sel.base : sel.extent;
+    if (sel.isCollapsed) return position;
+    final first = _compare(sel.base, sel.extent) <= 0 ? base : !base;
+    return position.copyWith(
+      offset: _snapAtomic(
+        position.documentId,
+        position.blockIndex,
+        position.offset,
+        up: !first,
+      ),
+    );
+  }
+
   /// The number of registered documents. Prefer this over `documents.length`,
   /// which allocates a fresh list on every read.
   int get documentCount => _docs.length;
@@ -1008,9 +1070,11 @@ class MarkdownSelectionController extends ChangeNotifier
     final nextIds = <Object>{for (final e in next) e.id};
 
     _horizontalPanByDoc.removeWhere((id, _) => !nextIds.contains(id));
+    _atomicRanges.removeWhere((id, _) => !nextIds.contains(id));
     for (final e in next) {
       final oldModel = previous[e.id];
       if (oldModel != null && !identical(oldModel, e.model)) {
+        _atomicRanges.remove(e.id);
         _remapHorizontalPans(e.id, oldModel, e.model);
       }
     }
@@ -1048,7 +1112,10 @@ class MarkdownSelectionController extends ChangeNotifier
     // the streaming path, which can call putDocument once per token.
     if (!orderChanged && !modelChanged) return;
     if (orderChanged) entry.order = order;
-    if (modelChanged) entry.model = model;
+    if (modelChanged) {
+      entry.model = model;
+      _atomicRanges.remove(id);
+    }
     // Reordering shifts indices; a model-only update keeps [_indexById] valid.
     if (orderChanged) _sort();
     if (modelChanged) _reconcile(id, old, model);
@@ -1071,6 +1138,7 @@ class MarkdownSelectionController extends ChangeNotifier
     _pendingRemoveIds.remove(id);
     _docs.removeWhere((e) => e.id == id);
     _horizontalPanByDoc.remove(id);
+    _atomicRanges.remove(id);
     _reindex();
     final sel = _selection;
     if (sel != null &&
@@ -1746,8 +1814,12 @@ class MarkdownSelectionController extends ChangeNotifier
 
     MarkdownSelectionSurface? startSurface = _surfaceFor(sel.base.documentId);
     MarkdownSelectionSurface? endSurface = _surfaceFor(sel.extent.documentId);
-    Rect? startLocal = startSurface?.caretRectFor(sel.base, _baseAffinity);
-    Rect? endLocal = endSurface?.caretRectFor(sel.extent, _extentAffinity);
+    Rect? startLocal =
+        startSurface?.caretRectFor(_boundaryOf(sel, base: true), _baseAffinity);
+    Rect? endLocal = endSurface?.caretRectFor(
+      _boundaryOf(sel, base: false),
+      _extentAffinity,
+    );
 
     if (startSurface == null || startLocal == null) {
       final proxy = _proxyHandleOnVisibleSelection(forStartEdge: true);
@@ -1894,8 +1966,17 @@ class MarkdownSelectionController extends ChangeNotifier
     final startBlock = di == startDoc ? a.blockIndex : 0;
     final endBlock = di == endDoc ? b.blockIndex : model.blocks.length - 1;
     if (blockIndex < startBlock || blockIndex > endBlock) return null;
-    final from = (di == startDoc && blockIndex == a.blockIndex) ? a.offset : 0;
-    final to = (di == endDoc && blockIndex == b.blockIndex) ? b.offset : len;
+    final collapsed = sel.isCollapsed;
+    final from = (di == startDoc && blockIndex == a.blockIndex)
+        ? (collapsed
+            ? a.offset
+            : _snapAtomic(documentId, blockIndex, a.offset, up: false))
+        : 0;
+    final to = (di == endDoc && blockIndex == b.blockIndex)
+        ? (collapsed
+            ? b.offset
+            : _snapAtomic(documentId, blockIndex, b.offset, up: true))
+        : len;
     return TextRange(start: from.clamp(0, len), end: to.clamp(0, len));
   }
 
@@ -1926,11 +2007,18 @@ class MarkdownSelectionController extends ChangeNotifier
       for (var bi = fromBlock; bi <= toBlock && bi < blocks.length; bi++) {
         if (bi < 0) continue;
         final text = markdownBlockRenderedText(blocks[bi]);
+        // An alt text is atomic: a boundary inside one takes the whole of it.
         final from = (d == startDoc && bi == a.blockIndex)
-            ? a.offset.clamp(0, text.length)
+            ? (sel.isCollapsed
+                    ? a.offset
+                    : _snapAtomic(entry.id, bi, a.offset, up: false))
+                .clamp(0, text.length)
             : 0;
         final to = (d == endDoc && bi == b.blockIndex)
-            ? b.offset.clamp(0, text.length)
+            ? (sel.isCollapsed
+                    ? b.offset
+                    : _snapAtomic(entry.id, bi, b.offset, up: true))
+                .clamp(0, text.length)
             : text.length;
         if (to <= from) continue;
         segs.add(MarkdownSelectedBlock(

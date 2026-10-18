@@ -11,6 +11,7 @@ import 'package:flutter/rendering.dart';
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
+import '../inline_embeds.dart';
 import '../span_builder.dart';
 
 /// A helper class to store layout information for a single list item.
@@ -45,6 +46,7 @@ class BlockPainter$List
   BlockPainter$List({
     required List<MD$ListItem> items,
     required this.theme,
+    this.inlineEmbeds,
   })  : _items = items,
         _painters = <_ListItemMetrics>[],
         _selectionHighlightAboveCachedContent =
@@ -67,6 +69,9 @@ class BlockPainter$List
 
   /// The theme used to style the list.
   final MarkdownThemeData theme;
+
+  /// Where the items' inline embeds come from, if the body has any.
+  final MarkdownEmbedHost? inlineEmbeds;
   final List<MD$ListItem> _items;
   final List<_ListItemMetrics> _painters;
 
@@ -128,10 +133,7 @@ class BlockPainter$List
 
   @override
   Size layout(double width) {
-    for (final painter in _painters) {
-      painter.dispose();
-    }
-    _painters.clear();
+    _disposePainters();
 
     double currentHeight = 0;
     double maxContentWidth = 0;
@@ -155,7 +157,11 @@ class BlockPainter$List
         )..layout();
 
         final contentPainter = TextPainter(
-          text: paragraphFromMarkdownSpans(spans: item.spans, theme: theme),
+          text: paragraphFromMarkdownSpans(
+            spans: item.spans,
+            theme: theme,
+            embeds: inlineEmbeds,
+          ),
           textDirection: theme.textDirection,
           textScaler: theme.textScaler,
         )..layout(maxWidth: math.max(0, width - indent - bulletPainter.width));
@@ -190,11 +196,13 @@ class BlockPainter$List
     for (final metrics in _painters) {
       if (frags.isNotEmpty) textPos += 1; // the '\n' item separator
       final origin = metrics.offset + Offset(metrics.bulletPainter.width, 0);
-      frags.add(SelectableFragment(metrics.contentPainter, origin, textPos));
-      textPos += metrics.contentPainter.plainText.length;
+      final fragment =
+          SelectableFragment(metrics.contentPainter, origin, textPos);
+      frags.add(fragment);
+      textPos += fragment.length;
     }
     _fragments = frags;
-    _renderedText = frags.map((f) => f.painter.plainText).join('\n');
+    _renderedText = frags.map((f) => f.renderedText).join('\n');
   }
 
   @override
@@ -209,12 +217,19 @@ class BlockPainter$List
     }
   }
 
-  @override
-  void dispose() {
+  /// Disposes the item painters, and the embeds their paragraphs reserved room
+  /// for: layout builds the paragraphs again.
+  void _disposePainters() {
     for (final metrics in _painters) {
+      inlineEmbeds?.releaseIn(metrics.contentPainter.text);
       metrics.dispose();
     }
     _painters.clear();
+  }
+
+  @override
+  void dispose() {
+    _disposePainters();
     _fragments = const <SelectableFragment>[];
   }
 }

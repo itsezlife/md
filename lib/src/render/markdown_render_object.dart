@@ -12,6 +12,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show MouseTrackerAnnotation;
 import 'package:meta/meta.dart' as meta show internal;
 
+import '../inline_embed.dart';
 import '../markdown.dart';
 import '../selection.dart';
 import '../theme.dart';
@@ -28,11 +29,15 @@ class MarkdownRenderObject extends RenderBox
     required Markdown markdown,
     required MarkdownThemeData theme,
     MarkdownCursorResolver? cursorResolver,
+    MarkdownInlineEmbedResolver? embedResolver,
+    double devicePixelRatio = 1.0,
   })  : _theme = theme,
         _cursorResolver = cursorResolver,
         _painter = MarkdownPainter(
           markdown: markdown,
           theme: theme,
+          embedResolver: embedResolver,
+          devicePixelRatio: devicePixelRatio,
         ) {
     _painter.onPaintersRebuilt = _onPaintersRebuilt;
   }
@@ -439,6 +444,14 @@ class MarkdownRenderObject extends RenderBox
     // Set the size of the render box to match the painter's size.
     size =
         constraints.constrain(_painter.layout(maxWidth: constraints.maxWidth));
+    // The controller keeps these for as long as the document lives, so a
+    // selection is whole for copy and highlight while this surface is
+    // unmounted too.
+    final controller = _controller;
+    final id = _documentId;
+    if (controller != null && id != null) {
+      controller.reportAtomicRanges(id, _painter.atomicRanges());
+    }
   }
 
   @override
@@ -607,6 +620,8 @@ class MarkdownRenderObject extends RenderBox
     required Markdown markdown,
     required MarkdownThemeData theme,
     MarkdownCursorResolver? cursorResolver,
+    MarkdownInlineEmbedResolver? embedResolver,
+    double devicePixelRatio = 1.0,
   }) {
     _theme = theme;
     if (_cursorResolver != cursorResolver) {
@@ -616,6 +631,8 @@ class MarkdownRenderObject extends RenderBox
     if (_painter.update(
       markdown: markdown,
       theme: theme,
+      embedResolver: embedResolver,
+      devicePixelRatio: devicePixelRatio,
     )) {
       // Mark the render object as needing layout.
       markNeedsLayout();
