@@ -46,6 +46,19 @@ void main() {
           reason: 'Corpus changed; regenerate with REGEN_GOLDEN=1.');
     });
 
+    test('no corpus span is both a link and a mention', () {
+      for (final entry in _corpus.entries) {
+        for (final span in _allSpans(markdownDecoder.convert(entry.value))) {
+          expect(
+            span.style.contains(MD$Style.link) &&
+                span.style.contains(MD$Style.mention),
+            isFalse,
+            reason: '${entry.key}: "${span.text}"',
+          );
+        }
+      }
+    });
+
     for (final name in actual.keys) {
       test(name, () {
         expect(
@@ -66,6 +79,38 @@ Map<String, String> _buildSections() {
     out[entry.key] = _serialize(markdownDecoder.convert(entry.value));
   }
   return out;
+}
+
+/// Every inline span of [md], at any depth (quotes, lists, tables).
+Iterable<MD$Span> _allSpans(Markdown md) sync* {
+  Iterable<MD$Span> ofItem(MD$ListItem item) sync* {
+    yield* item.spans;
+    for (final child in item.children) {
+      yield* ofItem(child);
+    }
+  }
+
+  Iterable<MD$Span> ofBlock(MD$Block block) sync* {
+    yield* block.map<List<MD$Span>>(
+      paragraph: (p) => p.spans,
+      heading: (h) => h.spans,
+      quote: (q) => [...q.spans, for (final b in q.blocks) ...ofBlock(b)],
+      alert: (a) => [...a.spans, for (final b in a.blocks) ...ofBlock(b)],
+      code: (_) => const <MD$Span>[],
+      list: (l) => [for (final i in l.items) ...ofItem(i)],
+      table: (t) => [
+        for (final c in t.header.cells) ...c,
+        for (final r in t.rows)
+          for (final c in r.cells) ...c,
+      ],
+      divider: (_) => const <MD$Span>[],
+      spacer: (_) => const <MD$Span>[],
+    );
+  }
+
+  for (final block in md.blocks) {
+    yield* ofBlock(block);
+  }
 }
 
 /// Encodes the section map into a single golden-file string.
@@ -270,6 +315,14 @@ const Map<String, String> _corpus = <String, String>{
   'image-title': '![alt](https://example.com/i.png "cap")',
   'link-nested-parens': '[t](https://x.io/path(with)parens)',
   'link-two': '[a](b) and [c](d)',
+
+  // Mention-class links (`mention:` / `username:` / `hashtag:`).
+  'mention-id': '[@a](mention:42)',
+  'mention-username': '[@a](username:a)',
+  'mention-hashtag': '[#t](hashtag:t)',
+  'mention-in-text': 'hi [@a](mention:1), see [#t](hashtag:t) and [x](b)!',
+  'mention-emphasis': '**[@a](mention:1)** and _[#t](hashtag:t)_',
+  'mention-image-stays-image': '![a](mention:1)',
 
   // Escapes.
   'escape-emphasis': r'\*not italic\* and \_not underline\_',

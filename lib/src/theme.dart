@@ -88,6 +88,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.quoteStyle,
     this.linkColor = Colors.indigo,
     this.linkStyle,
+    this.mentionColor,
     this.surfaceColor = const Color.fromARGB(255, 235, 235, 235),
     this.highlightBackgroundColor = const Color(0x40FF5722),
     this.monospaceBackgroundColor = const Color(0x409E9E9E),
@@ -99,6 +100,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.spanFilter,
     this.builder,
     this.onLinkTap,
+    this.onMentionTap,
     this.highlighter,
     this.cursorResolver,
   })  : monospaceFontFamily = monospaceFontFamily ??
@@ -123,6 +125,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     TextStyle? quoteStyle,
     Color? linkColor,
     TextStyle? linkStyle,
+    Color? mentionColor,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -134,6 +137,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     bool Function(MD$Span span)? spanFilter,
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
     void Function(String title, String url)? onLinkTap,
+    void Function(String scheme, String? id, String name)? onMentionTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
   }) {
@@ -155,6 +159,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
                   theme.textTheme.bodyMedium?.color?.withValues(alpha: 0.75)),
       linkColor: linkColor ?? theme.colorScheme.primary,
       linkStyle: linkStyle,
+      mentionColor: mentionColor,
       surfaceColor: surfaceColor ?? theme.colorScheme.surfaceContainerHigh,
       highlightBackgroundColor:
           highlightBackgroundColor ?? theme.colorScheme.errorContainer,
@@ -172,6 +177,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       spanFilter: spanFilter,
       builder: builder,
       onLinkTap: onLinkTap,
+      onMentionTap: onMentionTap,
       highlighter: highlighter,
       cursorResolver: cursorResolver,
     );
@@ -216,6 +222,14 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// An optional text style to merge into link spans, applied on top of the
   /// default link styling (bold + [linkColor]).
   final TextStyle? linkStyle;
+
+  /// The color to use for mention-class text: mentions, usernames and
+  /// hashtags ([MD$Style.mention]).
+  ///
+  /// When `null`, mention text follows [linkColor]. Mention text is plain
+  /// coloured text: no underline and no bold, whatever [linkStyle] adds to
+  /// links.
+  final Color? mentionColor;
 
   /// The color to use for the background of the quote, block, table and etc.
   final Color? surfaceColor;
@@ -312,6 +326,14 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// It receives the link title and URL as parameters.
   final void Function(String title, String url)? onLinkTap;
 
+  /// A callback function that is called when a mention-class span (a mention,
+  /// a username or a hashtag) is tapped. [onLinkTap] never fires for those.
+  ///
+  /// [scheme] is `mention`, `username` or `hashtag`. [id] is the identifier
+  /// of a `mention:` span and `null` for the other two. [name] is the span's
+  /// label for `mention:`, and the username or tag for the other two.
+  final void Function(String scheme, String? id, String name)? onMentionTap;
+
   /// An optional syntax highlighter for fenced code blocks. When `null`, code
   /// is painted as plain monospace text.
   ///
@@ -397,6 +419,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
                 : null,
             color: switch (style) {
               var s when s.contains(MD$Style.link) => linkColor,
+              var s when s.contains(MD$Style.mention) =>
+                mentionColor ?? linkColor,
               _ => null,
             },
             backgroundColor: switch (style) {
@@ -429,6 +453,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     TextStyle? quoteStyle,
     Color? linkColor,
     TextStyle? linkStyle,
+    Color? mentionColor,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -440,6 +465,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     bool Function(MD$Span span)? spanFilter,
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
     void Function(String title, String url)? onLinkTap,
+    void Function(String scheme, String? id, String name)? onMentionTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
   }) =>
@@ -456,6 +482,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
         quoteStyle: quoteStyle ?? this.quoteStyle,
         linkColor: linkColor ?? this.linkColor,
         linkStyle: linkStyle ?? this.linkStyle,
+        mentionColor: mentionColor ?? this.mentionColor,
         surfaceColor: surfaceColor ?? this.surfaceColor,
         highlightBackgroundColor:
             highlightBackgroundColor ?? this.highlightBackgroundColor,
@@ -470,6 +497,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
         spanFilter: spanFilter ?? this.spanFilter,
         builder: builder ?? this.builder,
         onLinkTap: onLinkTap ?? this.onLinkTap,
+        onMentionTap: onMentionTap ?? this.onMentionTap,
         highlighter: highlighter ?? this.highlighter,
         cursorResolver: cursorResolver ?? this.cursorResolver,
       );
@@ -496,6 +524,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       quoteStyle: TextStyle.lerp(quoteStyle, other?.quoteStyle, t),
       linkColor: Color.lerp(linkColor, other?.linkColor, t),
       linkStyle: TextStyle.lerp(linkStyle, other?.linkStyle, t),
+      mentionColor: Color.lerp(mentionColor, other?.mentionColor, t),
       surfaceColor: Color.lerp(surfaceColor, other?.surfaceColor, t),
       highlightBackgroundColor: Color.lerp(
           highlightBackgroundColor, other?.highlightBackgroundColor, t),
@@ -514,6 +543,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       spanFilter: t < 0.5 ? spanFilter : other?.spanFilter,
       builder: t < 0.5 ? builder : other?.builder,
       onLinkTap: t < 0.5 ? onLinkTap : other?.onLinkTap,
+      onMentionTap: t < 0.5 ? onMentionTap : other?.onMentionTap,
       highlighter: t < 0.5 ? highlighter : other?.highlighter,
       cursorResolver: t < 0.5 ? cursorResolver : other?.cursorResolver,
     );

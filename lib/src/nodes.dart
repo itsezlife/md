@@ -48,6 +48,16 @@ extension type const MD$Style(int value) implements int {
   /// Symbol: `||text||`.
   static const MD$Style spoiler = MD$Style(1 << 8);
 
+  /// Mention-class text style: a mention, a username or a hashtag.
+  /// Symbol: `[@name](mention:id)`, `[@name](username:name)` or
+  /// `[#tag](hashtag:tag)`.
+  ///
+  /// Exclusive with [link]: a span is a link or a mention, never both. A
+  /// mention paints in the theme's mention colour without an underline, and a
+  /// tap reports the scheme through `MarkdownThemeData.onMentionTap`, never
+  /// through `onLinkTap`.
+  static const MD$Style mention = MD$Style(1 << 9);
+
   // --- Can be expanded up to 1 << 31 --- //
 
   /// A list of all styles available in the MD$Style enum.
@@ -63,6 +73,7 @@ extension type const MD$Style(int value) implements int {
     image,
     highlight,
     spoiler,
+    mention,
   ];
 
   /// Check if the style contains a specific flag.
@@ -101,6 +112,7 @@ extension type const MD$Style(int value) implements int {
           if (contains(MD$Style.image)) 'image',
           if (contains(MD$Style.highlight)) 'highlight',
           if (contains(MD$Style.spoiler)) 'spoiler',
+          if (contains(MD$Style.mention)) 'mention',
         };
 
   /// Toggle a style flag in the current style.
@@ -143,6 +155,12 @@ final class MD$Span {
   /// Extra properties for the inline text.
   /// This can include additional metadata or attributes.
   /// For example, you can use it to store links or color information.
+  ///
+  /// A [MD$Style.link] span carries `type`, `href`, `url` and an optional
+  /// `alt` title. A [MD$Style.mention] span carries `type: 'mention'`,
+  /// the `scheme` (`mention`, `username` or `hashtag`) and the `name`
+  /// (the label for `mention:`, the destination for the other two); only
+  /// the `mention` scheme also carries an `id`.
   final Map<String, Object?>? extra;
 
   @override
