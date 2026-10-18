@@ -143,7 +143,10 @@ keeps the formatting.
 - **KNOWN GAPS**, pinned by the same file as today's behaviour so a fix flips
   them: a soft break inside a list item (`"- one  \ncontinued"`) ends the list;
   backslash escapes inside a link label or destination keep their backslash
-  (`[a\]b](u)`, `[t](https://x/a_\(b\))`); a code span fenced by two or more
+  (`[a\]b](u)`, `[t](https://x/a_\(b\))`, the latter locked by an existing
+  regression test, so a URL with parentheses written by a host keeps its
+  backslashes), and an escaped `>` still closes an angle-bracketed destination;
+  a code span fenced by two or more
   backticks and a code fence longer than three are not read as code; an embed
   inside a link label is read as a link that ends at the embed's bracket.
 - **DOCS**: `rendering.md` states the paint order (selection tint under the

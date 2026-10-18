@@ -236,6 +236,10 @@ void main() => group('Dialect conformance', () {
           r'**a\*b**': ['p: "a*b"<bold>'],
           // A block marker is escaped only at the start of a line.
           r'\# no': ['p: "# no"'],
+          // Text that looks like markup, as a writer escapes it.
+          r'2 \* 3 \* 4 and \`tick\` and \[not\](a link)': [
+            'p: "2 * 3 * 4 and `tick` and [not](a link)"',
+          ],
           r'\- no': ['p: "- no"'],
           r'\+ no': ['p: "+ no"'],
           r'\> no': ['p: "> no"'],
@@ -361,7 +365,7 @@ void main() => group('Dialect conformance', () {
 
         test('a link label keeps the backslashes of its escapes', () {
           // Means: "a]b" and "@a_b" with no backslash; a label is not
-          // unescaped the way paragraph text is.
+          // unescaped the way paragraph text is (and a destination is).
           expect(_read(r'[a\]b](u)'), [r'p: "a\]b"<link>{href: u}']);
           expect(_read(r'[@a\_b](mention:x)'), [
             r'p: "@a\_b"<mention>{id: x, name: @a\_b, scheme: mention}',
@@ -371,10 +375,17 @@ void main() => group('Dialect conformance', () {
           ]);
         });
 
-        test('a destination keeps the backslashes of escaped parentheses', () {
-          // Means: href https://x/a_(b).
+        test('a destination keeps the backslashes of escaped punctuation', () {
+          // Means: href https://x/a_(b). The parser's regression suite locks
+          // the backslash (`[t](a\)b)` reads as `a\)b`), so this is a decision
+          // for the parser's owner, not a fix made here.
           expect(_read(r'[t](https://x/a_\(b\))'), [
             r'p: "t"<link>{href: https://x/a_\(b\)}',
+          ]);
+          // Means: href https://x/a>b; the first `>` closes the brackets
+          // escaped or not, and the rest reads as a title.
+          expect(_read(r'[t](<https://x/a\>b>)'), [
+            r'p: "t"<link>{alt: b>, href: https://x/a\}',
           ]);
         });
 

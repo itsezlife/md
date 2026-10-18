@@ -185,7 +185,11 @@ fixing the parser fails the case and the case moves to the table above:
 - a soft break inside a list item (`"- one  \ncontinued"`) ends the list instead
   of continuing the item;
 - backslash escapes inside a link label or destination keep their backslash
-  (`[a\]b](u)`, `[t](https://x/a_\(b\))`);
+  (`[a\]b](u)`, `[t](https://x/a_\(b\))`), and the first `>` closes an
+  angle-bracketed destination escaped or not. `regression_test.dart` locks the
+  destination reading (`[t](a\)b)` is `a\)b`), so a writer's URL with
+  parentheses opens with the backslashes until the parser's owner decides
+  otherwise;
 - a code span fenced with two backticks or more, and a code fence longer than
   three backticks, are not read as code;
 - an embed inside a link label (`[![a](unicode:1F44D)](u)`) is read as a link
