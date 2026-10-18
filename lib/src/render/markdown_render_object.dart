@@ -12,6 +12,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart' show MouseTrackerAnnotation;
 import 'package:meta/meta.dart' as meta show internal;
 
+import '../inline_embed.dart';
 import '../markdown.dart';
 import '../selection.dart';
 import '../theme.dart';
@@ -28,11 +29,15 @@ class MarkdownRenderObject extends RenderBox
     required Markdown markdown,
     required MarkdownThemeData theme,
     MarkdownCursorResolver? cursorResolver,
+    MarkdownInlineEmbedResolver? embedResolver,
+    double devicePixelRatio = 1.0,
   })  : _theme = theme,
         _cursorResolver = cursorResolver,
         _painter = MarkdownPainter(
           markdown: markdown,
           theme: theme,
+          embedResolver: embedResolver,
+          devicePixelRatio: devicePixelRatio,
         ) {
     _painter.onPaintersRebuilt = _onPaintersRebuilt;
   }
@@ -607,6 +612,8 @@ class MarkdownRenderObject extends RenderBox
     required Markdown markdown,
     required MarkdownThemeData theme,
     MarkdownCursorResolver? cursorResolver,
+    MarkdownInlineEmbedResolver? embedResolver,
+    double devicePixelRatio = 1.0,
   }) {
     _theme = theme;
     if (_cursorResolver != cursorResolver) {
@@ -616,6 +623,8 @@ class MarkdownRenderObject extends RenderBox
     if (_painter.update(
       markdown: markdown,
       theme: theme,
+      embedResolver: embedResolver,
+      devicePixelRatio: devicePixelRatio,
     )) {
       // Mark the render object as needing layout.
       markNeedsLayout();

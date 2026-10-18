@@ -141,6 +141,30 @@ block painter's `renderedText`/fragment offsets **must** match it:
 - **table** → cells joined by `'\t'`, rows by `'\n'`.
 - divider / spacer → `''` (structural blocks contribute no text).
 
+### Inline embeds
+
+A resolved image span is one U+FFFC code unit in the `TextPainter`'s text while
+`markdownBlockRenderedText` has its alt text (any number of code units). The
+block painter mixins bridge the two with `MarkdownEmbedOffsets`, so
+`renderedText`, `positionAndAffinityForLocal`, `caretRectFor`, `boxesForRange`
+and `wordBoundaryForLocal` still speak rendered offsets; extraction and the
+controller never learn about embeds. The alt text is **atomic**:
+
+- A pointer over an embed (its reserved room or the square it is drawn into)
+  resolves to the nearer edge of its alt text, never inside it, so a drag ends
+  on one side of the embed or the other.
+- A range with a boundary inside an alt text is grown outward when highlighted
+  (`boxesForRange`): a start snaps to the embed's start, an end to its end. A
+  word select (double click / tap) on the embed selects the whole alt text.
+- `inlineSpanAt` / `ParagraphGestureHandler.hitTestInlineSpanWithPointerEvent`
+  return the `MarkdownEmbedSpan` over the embed's box, including the half
+  nearer the text after it, where the painter alone would answer with the next
+  span.
+- Copy reads the model, so a selection over an embed copies its alt text. A
+  range handed to the controller with an offset *inside* an alt text is not
+  snapped by extraction (it copies a partial alt); pointer selection never makes
+  one.
+
 ## `MarkdownSelectionScope` — gestures, keyboard, handles, toolbar
 
 `MarkdownSelectionScope` (a `StatefulWidget`) owns interaction for its subtree and

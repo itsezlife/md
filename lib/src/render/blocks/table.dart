@@ -12,6 +12,7 @@ import 'package:flutter/rendering.dart';
 import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
+import '../inline_embeds.dart';
 import '../span_builder.dart';
 
 /// Viewport pan for a clipped overflowing table.
@@ -95,11 +96,13 @@ class BlockPainter$Table
     required List<MD$TableRow> rows,
     required MarkdownThemeData theme,
     List<MD$TableColumnAlign> alignments = const <MD$TableColumnAlign>[],
+    MarkdownEmbedHost? inlineEmbeds,
   }) : this._(
           header: header,
           rows: rows,
           theme: theme,
           alignments: alignments,
+          inlineEmbeds: inlineEmbeds,
           pan: null,
         );
 
@@ -109,11 +112,13 @@ class BlockPainter$Table
     required List<MD$TableRow> rows,
     required MarkdownThemeData theme,
     List<MD$TableColumnAlign> alignments = const <MD$TableColumnAlign>[],
+    MarkdownEmbedHost? inlineEmbeds,
   }) : this._(
           header: header,
           rows: rows,
           theme: theme,
           alignments: alignments,
+          inlineEmbeds: inlineEmbeds,
           pan: _TablePanState(),
         );
 
@@ -122,6 +127,7 @@ class BlockPainter$Table
     required this.rows,
     required this.theme,
     required this.alignments,
+    required this.inlineEmbeds,
     required _TablePanState? pan,
   })  : _pan = pan,
         columns = header.cells.length,
@@ -152,6 +158,9 @@ class BlockPainter$Table
 
   /// The theme for the markdown table.
   final MarkdownThemeData theme;
+
+  /// Where the cells' inline embeds come from, if the body has any.
+  final MarkdownEmbedHost? inlineEmbeds;
 
   /// The number of columns in the table.
   final int columns;
@@ -350,6 +359,7 @@ class BlockPainter$Table
     // Dispose old painters
     for (final row in _cellPainters) {
       for (final painter in row) {
+        inlineEmbeds?.releaseIn(painter.text);
         painter.dispose();
       }
     }
@@ -371,7 +381,10 @@ class BlockPainter$Table
             : null;
         final textPainter = TextPainter(
           text: paragraphFromMarkdownSpans(
-              spans: cell, theme: theme, textStyle: style),
+              spans: cell,
+              theme: theme,
+              textStyle: style,
+              embeds: inlineEmbeds),
           textAlign: switch (_columnAlign(c)) {
             MD$TableColumnAlign.left => TextAlign.left,
             MD$TableColumnAlign.center => TextAlign.center,
@@ -486,8 +499,9 @@ class BlockPainter$Table
           final horizontalPadding = _cellHorizontalPadding(r, c, painter.width);
           final origin =
               Offset(colLeft + horizontalPadding, rowTop + verticalPadding);
-          frags.add(SelectableFragment(painter, origin, text.length));
-          text.write(painter.plainText);
+          final fragment = SelectableFragment(painter, origin, text.length);
+          frags.add(fragment);
+          text.write(fragment.renderedText);
         }
         colLeft += _columnWidths[c];
       }
@@ -638,6 +652,7 @@ final class BlockPainter$ScrollableTable extends BlockPainter$Table
     required super.rows,
     required super.theme,
     super.alignments,
+    super.inlineEmbeds,
     this.enabled = true,
   }) : super._pannable();
 
