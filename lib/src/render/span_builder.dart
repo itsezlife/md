@@ -89,6 +89,8 @@ TextSpan paragraphFromMarkdownSpans({
   // Every embed of the paragraph shares one size, so the font is probed once,
   // on the first embed, and not at all in a paragraph without one.
   MarkdownInlineEmbedMetrics? metrics;
+  // The same goes for the style of an emoji run: one per paragraph.
+  TextStyle? emojiStyle;
   InlineSpan mapper(MD$Span span) {
     final spanStyle = merge
         ? theme.textStyleFor(span.style).merge(style)
@@ -115,17 +117,51 @@ TextSpan paragraphFromMarkdownSpans({
         }
       }
     }
-    return TextSpan(
-      text: span.text,
-      style: spanStyle,
-      recognizer: switch (span.style) {
-        final s when s.contains(MD$Style.link) =>
-          _buildTapRecognizer(span, theme.onLinkTap),
-        final s when s.contains(MD$Style.mention) =>
-          _buildMentionRecognizer(span, theme.onMentionTap),
-        _ => null,
-      },
-    );
+    final recognizer = switch (span.style) {
+      final s when s.contains(MD$Style.link) =>
+        _buildTapRecognizer(span, theme.onLinkTap),
+      final s when s.contains(MD$Style.mention) =>
+        _buildMentionRecognizer(span, theme.onMentionTap),
+      _ => null,
+    };
+    final scanner = theme.emojiRuns;
+    final runs = scanner == null
+        ? const <TextRange>[]
+        : _validRuns(scanner(span.text), span.text.length);
+    if (runs.isEmpty) {
+      return TextSpan(
+        text: span.text,
+        style: spanStyle,
+        recognizer: recognizer,
+      );
+    }
+    // The span's own style stays on the parent; only the emoji pieces differ,
+    // so a link, a bold or a spoiler colour reaches them by inheritance. The
+    // recognizer goes on every piece: a position resolves to the deepest span.
+    final runStyle = emojiStyle ??= _emojiRunStyle(style, theme);
+    final pieces = <InlineSpan>[];
+    var at = 0;
+    for (final run in runs) {
+      if (run.start > at) {
+        pieces.add(TextSpan(
+          text: span.text.substring(at, run.start),
+          recognizer: recognizer,
+        ));
+      }
+      pieces.add(TextSpan(
+        text: span.text.substring(run.start, run.end),
+        style: runStyle,
+        recognizer: recognizer,
+      ));
+      at = run.end;
+    }
+    if (at < span.text.length) {
+      pieces.add(TextSpan(
+        text: span.text.substring(at),
+        recognizer: recognizer,
+      ));
+    }
+    return TextSpan(style: spanStyle, children: pieces);
   }
 
   final children = <InlineSpan>[];
@@ -307,6 +343,53 @@ extension MarkdownSpoilerPainter on TextPainter {
     }
     return rects;
   }
+}
+
+/// The in-bounds, ordered, non-empty ranges of [runs] for a text of [length]
+/// code units.
+///
+/// A scanner is the host's code, and a range outside the text would throw
+/// inside a build, so a range that is empty, backwards, out of bounds or
+/// overlapping the one before is dropped, not trusted.
+List<TextRange> _validRuns(Iterable<TextRange> runs, int length) {
+  final valid = <TextRange>[];
+  var floor = 0;
+  for (final run in runs) {
+    if (!run.isValid || run.isCollapsed) continue;
+    if (run.start < floor || run.end > length) continue;
+    valid.add(run);
+    floor = run.end;
+  }
+  return valid;
+}
+
+/// The style of an emoji run in text of [style]: a font size that makes the
+/// emoji's square [MarkdownThemeData.emojiScale] times the font's height, and
+/// the line height of the text around it.
+///
+/// A colour emoji font draws its glyph into a square of the font size, however
+/// tall the line is, so the font size of the run is the wanted square. The
+/// run's own line would be the emoji font's, taller than the text's, and every
+/// emoji would add to the line's height with its size; `height` pins it to the
+/// text's line, which is the style's own multiple of the font size or, without
+/// one, the font's ascent plus descent. What remains is what an emoji at the
+/// font size always did: the emoji font splits that line with a deeper descent
+/// than the text's, so a line that holds one can be a pixel taller than a line
+/// of text alone, whatever the glyph's size.
+TextStyle _emojiRunStyle(TextStyle style, MarkdownThemeData theme) {
+  final metrics = _probeMetrics(style, theme, 1);
+  final fontHeight = metrics.ascent + metrics.descent;
+  final square = fontHeight * theme.emojiScale;
+  final line = switch (style.height) {
+    final multiple? => multiple * metrics.fontSize,
+    null => fontHeight,
+  };
+  return TextStyle(
+    // `fontSize` is scaled again by the paragraph's text scaler, and `square`
+    // is already in scaled pixels: undo it, so the glyph is `square` on screen.
+    fontSize: (style.fontSize ?? kDefaultFontSize) * square / metrics.fontSize,
+    height: line / square,
+  );
 }
 
 /// The font metrics an embed in text of [style] is sized from.

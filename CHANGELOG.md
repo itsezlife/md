@@ -1,3 +1,16 @@
+## Unreleased
+
+### Theme
+- **ADDED**: `MarkdownThemeData.emojiRuns` (`MarkdownEmojiRuns`, a scanner of the
+  emoji in a text, from the host) and `emojiScale` (default 1). With a scanner,
+  each emoji run is drawn at `emojiScale` times the font's height (ascent plus
+  descent) instead of the font size, in a line as tall as the text's: a colour
+  emoji font draws its glyph into a square of the font size, which is smaller
+  than the line, and an inline embed (1.2 times the font's height) beside it
+  looked 40 % larger. Without a scanner nothing changes, and the text, its
+  offsets, selection, spoiler ranges and link recognizers are the same with
+  one.
+
 ## 0.4.1
 
 Before this release a body a chat host wrote showed backslashes: its writer
