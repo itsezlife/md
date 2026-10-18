@@ -4,6 +4,7 @@ import 'markdown.dart' show Markdown;
 import 'render.dart' show MarkdownRenderObject;
 import 'selection.dart' show MarkdownSelectionController;
 import 'selection_scope.dart' show MarkdownSelectionScope;
+import 'spoiler.dart' show MarkdownSpoilerController;
 import 'theme.dart';
 
 /// {@template markdown_widget}
@@ -16,6 +17,7 @@ class MarkdownWidget extends LeafRenderObjectWidget {
     this.theme,
     this.controller,
     this.documentId,
+    this.spoilerController,
     this.cursorResolver,
     super.key, // ignore: unused_element
   });
@@ -40,6 +42,14 @@ class MarkdownWidget extends LeafRenderObjectWidget {
   /// document model on the controller yourself.
   final Object? documentId;
 
+  /// Which documents have their `||spoilers||` revealed.
+  ///
+  /// Keyed by [documentId]: without both, spoilers paint as ordinary text.
+  /// With them, the document's spoilers stay hidden until a tap on one (or the
+  /// host) reveals the whole document through this controller. Share one
+  /// controller across every body of a list; its state outlives this widget.
+  final MarkdownSpoilerController? spoilerController;
+
   /// An optional callback to dynamically resolve the mouse cursor based on
   /// hover offset, hit block index, and hit block model.
   ///
@@ -61,6 +71,11 @@ class MarkdownWidget extends LeafRenderObjectWidget {
           ? null
           : (controller ?? MarkdownSelectionScope.maybeOf(context));
 
+  /// Reduced motion from the platform; the controller's own switch is the
+  /// host's.
+  bool _reduceMotion(BuildContext context) =>
+      MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
   @override
   RenderObject createRenderObject(BuildContext context) => MarkdownRenderObject(
         markdown: markdown,
@@ -71,6 +86,11 @@ class MarkdownWidget extends LeafRenderObjectWidget {
           _resolveController(context),
           documentId,
           markdown: markdown,
+        )
+        ..updateSpoilers(
+          spoilerController,
+          documentId,
+          reduceMotion: _reduceMotion(context),
         )
         ..setTickerModeEnabled(TickerMode.valuesOf(context).enabled);
 
@@ -88,6 +108,11 @@ class MarkdownWidget extends LeafRenderObjectWidget {
         _resolveController(context),
         documentId,
         markdown: markdown,
+      )
+      ..updateSpoilers(
+        spoilerController,
+        documentId,
+        reduceMotion: _reduceMotion(context),
       )
       ..setTickerModeEnabled(TickerMode.valuesOf(context).enabled)
       ..update(

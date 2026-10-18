@@ -262,6 +262,14 @@ class BlockPainter$Table
   }
 
   @override
+  List<Rect> get spoilerRects {
+    final rects = super.spoilerRects;
+    final pan = _pan;
+    if (pan == null) return rects;
+    return pan.toViewport(rects, theme.textDirection);
+  }
+
+  @override
   TextRange wordBoundaryForLocal(Offset local) =>
       super.wordBoundaryForLocal(_toContent(local));
 
@@ -381,10 +389,12 @@ class BlockPainter$Table
             : null;
         final textPainter = TextPainter(
           text: paragraphFromMarkdownSpans(
-              spans: cell,
-              theme: theme,
-              textStyle: style,
-              embeds: inlineEmbeds),
+            spans: cell,
+            theme: theme,
+            textStyle: style,
+            embeds: inlineEmbeds,
+            revealed: spoilersRevealed,
+          ),
           textAlign: switch (_columnAlign(c)) {
             MD$TableColumnAlign.left => TextAlign.left,
             MD$TableColumnAlign.center => TextAlign.center,
