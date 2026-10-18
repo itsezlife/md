@@ -1,3 +1,190 @@
+## 0.4.0
+
+Before this release a chat body was text and chrome: `![alt](src)` drew its alt
+text, `[@alice](mention:42)` was a link that fired `onLinkTap` and carried a
+URL-shaped string for the host to sniff, `||x||` was readable plain text, and a
+copy (`Ctrl/Cmd+C`, the toolbar's Copy, `getText()`) lost every mark. After it,
+the three inline things a chat message holds are part of the package: a
+sticker or custom emoji takes room in its line and animates, a mention is a
+span style of its own, a spoiler is hidden behind moving dust until a tap
+reveals it, and a copy is markdown the same parser reads back. None of it
+re-records the cached glyph picture: embeds, dust and ripple are live passes
+drawn around it, and a mention is a text style. A host that passes no resolver
+and no spoiler controller sees the 0.3.0 rendering, with the exceptions listed
+under **Breaking vs 0.3.0**. The release tag is `v0.4.0`; depend on it by git ref
+as described under 0.3.0's *Fork status*.
+
+### Inline embeds
+- **ADDED**: the embed contract, `MarkdownInlineEmbed`,
+  `MarkdownInlineEmbedResolver`, `MarkdownInlineEmbedTarget` (scheme, id, alt),
+  `MarkdownInlineEmbedMetrics` (`fontSize`, `ascent`, `descent`,
+  `devicePixelRatio`, `extent`) and the paint context. The package knows no
+  implementation: a host adapts its own asset type to the contract, the way a
+  theme hands over colours.
+- **ADDED**: `MarkdownWidget.embedResolver`. An image span whose `src` has a
+  scheme the resolver answers for becomes a real inline object: a
+  `PlaceholderSpan` (not a `WidgetSpan`, so nothing is built per embed) of
+  `1.2 × (ascent + descent)` of the paragraph font, rounded to device pixels, the
+  same for every embed of a paragraph and centred on the line, so a line with an
+  embed is as tall as one without. The resolver must be a stable instance: a new
+  one disposes every embed of the old and resolves again. No resolver, a scheme
+  it returns `null` for, or a `src` without a scheme keeps the alt text as
+  ordinary text; there is no broken mark.
+- **ADDED**: a live paint pass for embeds, after the glyph picture and the
+  pannable blocks and before the selection tint above them. An embed's signal
+  coalesces into one `markNeedsPaint` per frame per render object; it never
+  lays out and never re-records the picture (a test counts the recordings over
+  100 signalling frames). `MarkdownInlineEmbed.visible` follows whether the
+  embed's block is inside the painted height and goes false before dispose. The
+  device pixel ratio comes from `MediaQuery`. Embeds in a list or a table paint
+  under that block's clip and pan with their cell. A custom painter that builds
+  its own paragraph in a constructor gets no embeds, because the host that owns
+  them is internal.
+- **ADDED**: alt text is atomic for selection. The placeholder is one U+FFFC in
+  the painter's text while the rendered text holds the alt (any number of code
+  units), so `SelectableTextBlock` and `MultiPainterSelectable` convert through
+  an offset map that is the identity for a paragraph without embeds. The
+  controller keeps the alt ranges per document and moves the first boundary of a
+  range that falls inside one down to its start and the last up to its end: a
+  drag that ends on an embed takes all of it, and copy yields the whole alt,
+  also while the message is scrolled out and unmounted.
+- **CHANGED**: `SelectableFragment.length` and `.renderedText` are in rendered
+  terms. For a block with embeds a painter's `plainText` is no longer its
+  rendered text; read `renderedText`.
+
+### Mentions
+- **ADDED**: `MD$Style.mention` (`1 << 9`), `MarkdownThemeData.mentionColor` (the
+  link colour when null) and `onMentionTap(scheme, id, name)`.
+- **CHANGED**: a link whose destination scheme is `mention:`, `username:` or
+  `hashtag:` is no longer a link. The parser reads the scheme once and the span
+  carries it in `extra` (`scheme`, `name`, and `id` for `mention:`); the span is
+  never both `link` and `mention`. It paints in the mention colour with no
+  underline and a tap calls `onMentionTap`, never `onLinkTap`. `![a](mention:1)`
+  stays an image, `[x](https://a.b)` and `[x](mailto:a@b.c)` stay links. The
+  spellings on the wire do not change.
+
+### Spoilers
+- **ADDED**: `MarkdownSpoilerController`, passed as
+  `MarkdownWidget.spoilerController` together with `documentId`. One bit per
+  document: a tap reveals every spoiler of the message. It outlives widgets, so
+  a remount (an edit's twin, list virtualization) keeps the state and a quote of
+  the same document reveals with the original. It is in memory only and nothing
+  re-hides it; `reveal(documentId)` without an origin is the entry for a host
+  whose text selection enters a hidden spoiler.
+- **ADDED**: hidden text stays where it is. A hidden run gets a transparent
+  colour and nothing else, so every glyph box equals the revealed one and a
+  reveal swaps pictures without a layout. The painter keeps a glyph picture per
+  `(size, revealed)`, two at most, and the fill and ripple are live passes above
+  them.
+- **ADDED**: a ripple reveal of about 300 ms (`revealDuration`) from the tap
+  point, the hidden picture outside the circle and the revealed one inside it,
+  reaching the farthest spoiler of the document. Embeds inside a spoiler paint
+  at opacity 0 and fade in with it. Motion off (`animate = false`, or
+  `MediaQuery.disableAnimationsOf`) reveals in the same frame.
+- **ADDED**: Android's particle dust as the fill: one 128 dp tile, simulated once
+  per dust frame into a `Picture.toImageSync` image and sampled by every hidden
+  spoiler through an `ImageShader`, so the cost is one tile render however many
+  spoilers are on screen. One tile per `(text colour, pixel ratio)` per process,
+  disposed with its last user; where the engine has no `toImageSync` the frame-0
+  dust is drawn static. The package owns no ticker: the host feeds
+  `MarkdownSpoilerController.advance(elapsed)` from its clock while `wantsTicks`
+  is true (`fillFrameRate` is 30), and with no clock the dust holds still. The
+  raster cost of many hidden spoilers on web renderers and a low-end Android
+  device has not been measured yet.
+- **CHANGED**: a tap on a hidden spoiler is taken by the spoiler and reveals; it
+  is not forwarded to the blocks, so a link or mention under it does not fire
+  `onLinkTap` / `onMentionTap` until the same tap lands after the reveal. A
+  parser limit stays: inside a table cell `||` is a cell delimiter.
+
+### Copy as markdown by default
+Before this change a copy was plain text: `**bold** and [a link](https://a.b)`
+copied as `bold and a link`. After it, the default copy is markdown source, so a
+host that shows the copy as text, or pastes it into another markdown reader,
+keeps the formatting.
+
+- **ADDED**: `MarkdownSourceFormatter`, a `MarkdownSelectionFormatter` that
+  writes the inline layer as markdown: `**bold**`, `*italic*`, `__underline__`,
+  `~~strike~~`, `||spoiler||` (a hidden spoiler is copied revealed, marks
+  kept), `==highlight==`, `` `code` ``, `[x](url)`, `[@x](mention:id)`,
+  `[@x](username:x)`, `[#x](hashtag:x)` and `![alt](src)`. Literal `\ * ` [ ]`,
+  underscores outside words, runs of `~ | =` and line-start block markers are
+  backslash-escaped, so the copy parses back to the spans it came from. A fully
+  selected block keeps its structure (it extends `MarkdownMarkupFormatter`); a
+  selection that starts or ends inside a styled run closes and reopens the
+  marks.
+- **ADDED**: `MarkdownSelectionFormatter.plain`, the text-only formatter by name.
+- **CHANGED (breaking for copy output)**: `MarkdownSelectionController`'s
+  default `formatter` is `MarkdownSourceFormatter` (was
+  `MarkdownPlainTextFormatter`). Blocks are now joined with a blank line (the
+  markup formatter's separator), not a newline. A host that wants the old text
+  passes `MarkdownSelectionFormatter.plain`:
+  `MarkdownSelectionController(formatter: MarkdownSelectionFormatter.plain)`.
+  Code that asserted a copied string, or a clipboard value, will see markers.
+- **CHANGED**: where the parser cannot read a span back, the copy keeps the text
+  and drops the style: whitespace at the edge of a styled run is written outside
+  the marks, a code run holding a backtick is plain text, and an underline that
+  starts or ends inside a word is dropped (the parser's `__` must sit at a word
+  boundary).
+- **CHANGED**: the parser reads `\~`, `\|`, `\=` and `\>` as the literal
+  character (they kept their backslash), `\!` before `[` no longer makes the
+  link an image, and a closing marker right after an escaped marker of its own
+  kind (`**a\***`) closes. Text that contained one of those backslashes now
+  loses it.
+
+### The grammar a host writes is pinned
+- **ADDED**: `test/parser/dialect_conformance_test.dart`, string fixtures for
+  every spelling a chat host writes from its rich text (styles and their
+  toggled nesting, links cut at style boundaries, the three mention-class
+  schemes, `![alt](unicode:…)` / `document:` / `external:` embeds, escaped
+  specials, quote lines, fenced code blocks, and lists at two spaces a level),
+  each with the blocks and spans it must parse to. A spelling the parser stops
+  reading fails there and not on a screen. The fixtures are strings, not a
+  writer's output, because the writer lives in another repository.
+- **KNOWN GAPS**, pinned by the same file as today's behaviour so a fix flips
+  them: a soft break inside a list item (`"- one  \ncontinued"`) ends the list;
+  backslash escapes inside a link label or destination keep their backslash
+  (`[a\]b](u)`, `[t](https://x/a_\(b\))`); a code span fenced by two or more
+  backticks and a code fence longer than three are not read as code; an embed
+  inside a link label is read as a link that ends at the embed's bracket.
+- **DOCS**: `rendering.md` states the paint order (selection tint under the
+  glyphs, glyph picture for `(size, revealed)`, pannable blocks, spoiler fill and
+  ripple, embeds, selection tint above chrome) and the invariant that an embed, a
+  spoiler or a mention never re-records the picture per frame; `selection.md`
+  covers the offset map, atomic alt text, copy through a hidden spoiler and the
+  default formatter; `parser.md` the mention bit and the three schemes;
+  `architecture.md` the embed contract and `MarkdownSpoilerController` on the
+  public surface; the README lists the three features.
+
+### Breaking vs 0.3.0
+Source-breaking only for hosts that implement the render / selection extension
+points or read span metadata. Hosts that only use `MarkdownWidget` /
+`MarkdownSelectionScope` see three behaviour changes: the copy, mention links
+and, once they pass a resolver or controller, embeds and spoilers.
+
+- **Copy is markdown.** `getText()`, the toolbar's Copy and `Ctrl/Cmd+C` write
+  `MarkdownSourceFormatter` output, blocks separated by a blank line. Pass
+  `MarkdownSelectionFormatter.plain` for the old text.
+- **Mention-scheme links no longer fire `onLinkTap`.** `[x](mention:…)`,
+  `[x](username:…)` and `[x](hashtag:…)` are `MD$Style.mention` spans without
+  `link`, `href` or `url` in `extra`; code that looked for them under
+  `MD$Style.link`, or opened their destination, must read `scheme` / `id` /
+  `name` and set `onMentionTap`. A host with no `onMentionTap` gets inert text
+  where it had a tappable link.
+- **Image spans with a resolver are no longer laid out as text.** With
+  `embedResolver` set, a resolved image span is one U+FFFC in the painter's text
+  and a square in the line. Painters that index a `TextPainter` with rendered
+  offsets of a block with embeds must go through `renderedText` /
+  `MarkdownEmbedOffsets` (the mixins do). Without a resolver nothing changes.
+- **`||x||` hides when a controller and `documentId` are given.** Without them
+  it stays plain text, as before.
+- **Parser escapes.** `\~ \| \= \>` lose their backslash (see above).
+- **Extension points.** `SelectableTextBlock` and `MultiPainterSelectable` also
+  implement `SpoilerBlockPainter` (`spoilersRevealed`, `spoilerRects`);
+  `paragraphFromMarkdownSpans` takes `revealed` and `embeds`; a custom painter
+  that builds a paragraph in its constructor shows alt text and a plain spoiler.
+  `MarkdownSelectionSurface` and `SelectableBlockPainter` gain no abstract
+  members.
+
 ## 0.3.0
 
 Before this release the package was `0.2.0` from upstream: selection worked
