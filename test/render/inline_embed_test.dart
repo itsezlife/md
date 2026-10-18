@@ -371,8 +371,9 @@ void main() {
       String text = source,
     }) async {
       final resolver = FakeInlineEmbedResolver();
-      final controller = MarkdownSelectionController()
-        ..setDocuments(<MarkdownDocumentRef>[
+      final controller = MarkdownSelectionController(
+        formatter: MarkdownSelectionFormatter.plain,
+      )..setDocuments(<MarkdownDocumentRef>[
           MarkdownDocumentRef(id: 'd', model: Markdown.fromString(text)),
         ]);
       addTearDown(controller.dispose);

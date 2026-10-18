@@ -51,9 +51,10 @@ const String _loremPlain =
     'This is a plain SelectableText (not Markdown). Selecting here clears the '
     'Markdown selections above — and selecting Markdown clears this one.';
 
-/// Reconstructs Markdown structure (heading levels, nested list markers, task
-/// checkboxes, blockquotes, fenced code, pipe tables) on copy, instead of the
-/// flattened plain text the default [MarkdownPlainTextFormatter] produces.
+/// Reconstructs Markdown block structure (heading levels, nested list markers,
+/// task checkboxes, blockquotes, fenced code, pipe tables) on copy, with inline
+/// styles as plain text. The default [MarkdownSourceFormatter] also writes the
+/// inline marks.
 const MarkdownMarkupFormatter _markupFormatter = MarkdownMarkupFormatter();
 
 /// Demonstrates cross-block selection within a single [MarkdownWidget], several
@@ -155,8 +156,8 @@ class _LoremTabState extends State<LoremTab> {
       ContextMenuButtonItem(
         label: 'Copy as Markdown',
         onPressed: () {
-          // Reconstruct structure (headings, nested lists, tables, …)
-          // instead of the flattened plain text the default Copy uses.
+          // Reconstruct block structure (headings, nested lists, tables, …)
+          // without the inline marks the default Copy also writes.
           Clipboard.setData(
             ClipboardData(text: state.controller.getText(_markupFormatter)),
           );

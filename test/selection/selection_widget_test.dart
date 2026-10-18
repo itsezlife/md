@@ -305,7 +305,8 @@ void main() {
       final md =
           Markdown.fromString('| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |');
       final table = md.blocks.firstWhere((b) => b.type == 'table');
-      final controller = MarkdownSelectionController()
+      final controller = MarkdownSelectionController(
+          formatter: MarkdownSelectionFormatter.plain)
         ..setDocuments(
             <MarkdownDocumentRef>[MarkdownDocumentRef(id: 'd', model: md)]);
 
@@ -343,7 +344,8 @@ void main() {
 
     testWidgets('drag selects the items of a list', (tester) async {
       final md = Markdown.fromString('- alpha\n- beta\n- gamma');
-      final controller = MarkdownSelectionController()
+      final controller = MarkdownSelectionController(
+          formatter: MarkdownSelectionFormatter.plain)
         ..setDocuments(
             <MarkdownDocumentRef>[MarkdownDocumentRef(id: 'd', model: md)]);
 
@@ -380,7 +382,8 @@ void main() {
         (tester) async {
       final md = Markdown.fromString(
           'Intro line\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\nOutro line');
-      final controller = MarkdownSelectionController()
+      final controller = MarkdownSelectionController(
+          formatter: MarkdownSelectionFormatter.plain)
         ..setDocuments(
             <MarkdownDocumentRef>[MarkdownDocumentRef(id: 'd', model: md)]);
 
@@ -2031,7 +2034,8 @@ void main() {
       // invariant check runs before user tearDowns in this Flutter version.
       try {
         final md = Markdown.fromString('One two\n\nThree four');
-        final controller = MarkdownSelectionController()
+        final controller = MarkdownSelectionController(
+            formatter: MarkdownSelectionFormatter.plain)
           ..setDocuments(
               <MarkdownDocumentRef>[MarkdownDocumentRef(id: 'd', model: md)])
           ..selectAll();
@@ -2073,7 +2077,8 @@ void main() {
       debugDefaultTargetPlatformOverride = TargetPlatform.linux;
       try {
         final md = Markdown.fromString('One two\n\nThree four');
-        final controller = MarkdownSelectionController()
+        final controller = MarkdownSelectionController(
+            formatter: MarkdownSelectionFormatter.plain)
           ..setDocuments(
               <MarkdownDocumentRef>[MarkdownDocumentRef(id: 'd', model: md)])
           // Start with only the first paragraph selected.
