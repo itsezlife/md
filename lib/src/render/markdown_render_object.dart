@@ -334,7 +334,10 @@ class MarkdownRenderObject extends RenderBox
   bool _handleSpoilerTap(PointerEvent event) {
     switch (event) {
       case PointerDownEvent():
+        // Only the primary button taps; a secondary click opens the host's
+        // context menu and must not unveil what is under it.
         if (_spoilerController == null ||
+            event.buttons & kPrimaryButton == 0 ||
             !_painter.hiddenSpoilerAt(event.localPosition)) {
           _spoilerTap = null;
           return false;

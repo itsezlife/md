@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render/markdown_painter.dart';
@@ -96,6 +97,22 @@ void main() {
 
       await tester
           .tapAt(tester.getTopLeft(find.byKey(_key('a'))) + const Offset(2, 8));
+
+      expect(spoilers.isRevealed('a'), isFalse);
+    });
+
+    testWidgets('a secondary click on a spoiler reveals nothing',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      final gesture = await tester.startGesture(
+        _spoilerCenter(tester, 'a'),
+        kind: PointerDeviceKind.mouse,
+        buttons: kSecondaryMouseButton,
+      );
+      await gesture.up();
 
       expect(spoilers.isRevealed('a'), isFalse);
     });
@@ -257,6 +274,23 @@ void main() {
       expect(
           _painterOf(tester, 'a').spoilerPhase, isA<SpoilerPhase$Revealed>());
       expect(tester.hasRunningAnimations, isFalse);
+    });
+
+    testWidgets('a reveal with no position ripples from the spoiler',
+        (tester) async {
+      final spoilers = MarkdownSpoilerController();
+      addTearDown(spoilers.dispose);
+      await tester.pumpWidget(_body([('a', _plain)], spoilers));
+
+      spoilers.reveal('a'); // what the viewport does when a selection enters
+      await tester.pump();
+
+      final phase = _painterOf(tester, 'a').spoilerPhase;
+      expect(phase, isA<SpoilerPhase$Revealing>());
+      expect((phase as SpoilerPhase$Revealing).origin, isNull);
+      await tester.pumpAndSettle();
+      expect(
+          _painterOf(tester, 'a').spoilerPhase, isA<SpoilerPhase$Revealed>());
     });
 
     testWidgets('motion off: one frame, no ripple', (tester) async {

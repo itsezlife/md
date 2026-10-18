@@ -12,9 +12,11 @@ canvas via one `RenderBox` and a list of `BlockPainter`s — **no widget per blo
 | File | Contents |
 |---|---|
 | `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, private `_distanceToRect`. |
-| `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle})` → `TextSpan`; private `_buildTapRecognizer` (link taps from `span.extra['url']`). |
+| `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle, revealed})` → `TextSpan` (a `MarkdownParagraphSpan` when the paragraph has a `\|\|spoiler\|\|`); the `TextPainter` extension `MarkdownSpoilerPainter`; private `_buildTapRecognizer` (link taps from `span.extra['url']`). |
+| `spoiler_phase.dart` | `SpoilerPhase` (`$Hidden` / `$Revealing` / `$Revealed`) — what the painter draws for the document's spoilers. |
 | `markdown_painter.dart` | `MarkdownPainter` (`@meta.internal`) — the orchestrator. |
 | `markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface`; plus `_paintNothing`. |
+| `../spoiler.dart` | `MarkdownSpoilerController` — which documents are revealed; public. |
 | `blocks/*.dart` | `BlockPainter$Paragraph, $Heading, $Quote, $Alert, $Code, $List` (+ private `_ListItemMetrics`), `$Table`, `$ScrollableTable`, `$Divider`, `$Spacer`. |
 
 ## Render flow
@@ -182,6 +184,51 @@ and expose `fragments` + `renderedText`.
 `$Divider`/`$Spacer` are not selectable; `$Code` is selectable but has no link
 taps; only `$List`/`$Table` use `MultiPainterSelectable`.
 
+## Spoilers
+
+`||x||` parses to `MD$Style.spoiler` (any inline can carry it: a link or an
+image inside a spoiler keeps both bits). It paints hidden until the document is
+revealed.
+
+- **State.** `MarkdownSpoilerController` (`ChangeNotifier`) holds the revealed
+  `documentId`s and the global point each reveal started from. Pass it as
+  `MarkdownWidget.spoilerController` (keyed by `documentId`, like the selection
+  controller). One bit per **document**: a tap reveals every spoiler of it. It
+  outlives widgets, so a remount finds the document revealed and a second widget
+  of the document reveals with the first. In memory only; nothing re-hides on its
+  own. No controller or no `documentId` → spoilers paint as ordinary text.
+- **Hidden text keeps its place.** `paragraphFromMarkdownSpans(revealed: false)`
+  gives each spoiler run a transparent colour (and decoration / background
+  colour) and nothing else, so every glyph box equals the revealed one. The
+  result is a `MarkdownParagraphSpan` that carries both forms and the spoiler
+  ranges; flipping a laid-out `TextPainter` between them
+  (`TextPainter.setSpoilersRevealed`) is a paint-only text change, so Flutter
+  keeps the layout. `SelectableTextBlock` and `MultiPainterSelectable` implement
+  `SpoilerBlockPainter` (`spoilersRevealed`, `spoilerRects`), which covers the
+  default painters; a painter that implements neither shows spoilers as text.
+- **Two pictures at most.** `MarkdownPainter` caches a glyph picture per
+  `(size, revealed)`: hidden while hidden, revealed once revealed, both only for
+  the length of a ripple. A reveal swaps pictures; it never lays out.
+- **Live passes.** The fill over each hidden spoiler (`spoilerRects`, outside the
+  glyph pictures) and the ripple are painted every frame without touching the
+  pictures. The fill here is a flat patch; the particle tile replaces its body.
+- **Ripple.** ~300 ms (`MarkdownSpoilerController.revealDuration`): outside a
+  circle grown from the tap point, the hidden picture and the fill; inside it
+  (clipped to the spoiler rects) the revealed picture. The radius reaches the
+  farthest corner of any spoiler of the document. The render object runs it on a
+  raw `Ticker` (muted with `TickerMode`; a muted ripple ends revealed). Motion
+  off (`MarkdownSpoilerController.animate = false`, or
+  `MediaQuery.disableAnimationsOf`) reveals in the same frame.
+- **Taps.** A pointer that goes down on a hidden spoiler is not forwarded to the
+  blocks: the tap reveals (if it comes up within the pan slop), so
+  `onLinkTap` / `onMentionTap` do not fire for a link under a spoiler. The same
+  tap after the reveal does. `MarkdownSpoilerController.reveal(documentId)` with
+  no origin is the entry for a text selection that enters a spoiler; it ripples
+  from the middle of the spoilers.
+- **Embeds.** `MarkdownPainter.embedOpacityAt(rect)` is the spoiler's half of the
+  inline embed contract: 0 under a hidden spoiler, the ripple's progress while
+  revealing, 1 elsewhere.
+
 ## Theme customization (`MarkdownThemeData`)
 
 `MarkdownThemeData implements ThemeExtension<MarkdownThemeData>` — put it in
@@ -223,8 +270,8 @@ Public (in `flutter_md.dart`'s `show` list): the framework
 (`BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`,
 `SelectableTextBlock`,
 `MultiPainterSelectable`, `SelectableFragment`, `ParagraphGestureHandler`,
-`paragraphFromMarkdownSpans`) and the default painters (`BlockPainter$Paragraph …
-$Spacer`, plus opt-in `$ScrollableTable`). Internal (`@meta.internal`, only via
+`paragraphFromMarkdownSpans`, `SpoilerBlockPainter`) and the default painters
+(`BlockPainter$Paragraph … $Spacer`, plus opt-in `$ScrollableTable`). Internal (`@meta.internal`, only via
 `src/render.dart`): `MarkdownPainter`, `MarkdownRenderObject`.
 
 ## Invariants (repeated from [architecture](architecture.md), owned here)
@@ -239,6 +286,9 @@ $Spacer`, plus opt-in `$ScrollableTable`). Internal (`@meta.internal`, only via
   backgrounds) so the tint stays visible there. Drags/streaming/pan never rebuild
   the glyph cache. Color = `controller.selectionColor ?? _kSelectionColor`
   (`0x552196F3`). Pannable-block highlights are clipped to the block viewport.
+- **Spoilers never re-record per frame.** At most two glyph pictures exist per
+  size (hidden, revealed); the fill pass and the ripple are live passes above
+  them, and a reveal swaps pictures without laying out.
 - `isRepaintBoundary => controller != null`; `alwaysNeedsCompositing` when the
   surface owns a start and/or end handle `LeaderLayer`.
 - Handle `LeaderLayer`s are pushed in `paint` via `LayerHandle` (only when a

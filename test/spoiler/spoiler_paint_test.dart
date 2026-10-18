@@ -12,9 +12,16 @@ MarkdownPainter _painter(
   String source, {
   double width = 300,
   MarkdownThemeData? theme,
+}) =>
+    _painterFor(Markdown.fromString(source), width: width, theme: theme);
+
+MarkdownPainter _painterFor(
+  Markdown markdown, {
+  double width = 300,
+  MarkdownThemeData? theme,
 }) {
   final painter = MarkdownPainter(
-    markdown: Markdown.fromString(source),
+    markdown: markdown,
     theme: theme ?? MarkdownThemeData(textStyle: const TextStyle(fontSize: 14)),
   )..layout(maxWidth: width);
   addTearDown(painter.dispose);
@@ -158,6 +165,87 @@ void main() {
     });
   });
 
+  group('a table with a spoiler', () {
+    // The parser does not read `||` inside a table cell (the pipes split it),
+    // so the model is built by hand.
+    const spoiler = MD$Span(
+      start: 0,
+      end: 12,
+      text: 'hidden words',
+      style: MD$Style.spoiler,
+    );
+    const plain = MD$Span(start: 0, end: 15, text: 'plain cell text');
+    const row = MD$TableRow(text: '', cells: [
+      [spoiler],
+      [plain],
+    ]);
+    const tableMarkdown = Markdown(
+      markdown: '',
+      blocks: [
+        MD$Table(text: '', header: row, rows: [row]),
+      ],
+    );
+
+    MarkdownThemeData scrollable() => MarkdownThemeData(
+          textStyle: const TextStyle(fontSize: 14),
+          builder: (block, theme) => block is MD$Table
+              ? BlockPainter$ScrollableTable(
+                  header: block.header,
+                  rows: block.rows,
+                  alignments: block.alignments,
+                  theme: theme,
+                )
+              : null,
+        );
+
+    test('paints live in every phase and keeps two pictures at most', () {
+      // Narrower than the columns so the table pans.
+      final painter =
+          _painterFor(tableMarkdown, width: 90, theme: scrollable());
+      expect(painter.hasSpoilers, isTrue);
+      expect(painter.spoilerRects, isNotEmpty);
+
+      painter.setSpoilerPhase(const SpoilerPhase$Hidden());
+      _paint(painter);
+      painter.setSpoilerPhase(
+        const SpoilerPhase$Revealing(progress: 0.5, origin: Offset.zero),
+      );
+      _paint(painter);
+      painter.setSpoilerPhase(const SpoilerPhase$Revealed());
+      _paint(painter);
+
+      // The pannable table paints outside the pictures; they hold nothing of
+      // it, and no phase re-records them.
+      expect(painter.debugPictureRecordings, lessThanOrEqualTo(3));
+    });
+
+    test('the default table finds its spoiler too', () {
+      final painter = _painterFor(tableMarkdown);
+
+      expect(painter.hasSpoilers, isTrue);
+      painter.setSpoilerPhase(const SpoilerPhase$Hidden());
+      _paint(painter);
+      expect(painter.debugPictureRecordings, 1);
+      expect(
+          painter.hiddenSpoilerAt(painter.spoilerRects.first.center), isTrue);
+    });
+
+    test('its spoiler rects follow the pan and stay in the viewport', () {
+      final painter =
+          _painterFor(tableMarkdown, width: 90, theme: scrollable());
+      final block = painter.pannablePainterAt(0)!;
+      final before = painter.spoilerRects;
+
+      block.applyScrollDelta(20);
+
+      for (final rect in painter.spoilerRects) {
+        expect(rect.left, greaterThanOrEqualTo(0));
+        expect(rect.right, lessThanOrEqualTo(block.size.width));
+      }
+      expect(painter.spoilerRects, isNot(before));
+    });
+  });
+
   group('spoiler blocks keep their layout', () {
     final theme = MarkdownThemeData(textStyle: const TextStyle(fontSize: 14));
 
@@ -185,12 +273,11 @@ void main() {
       }
     });
 
-    test('a spoiler in a list item, quote, alert and table is found', () {
+    test('a spoiler in a list item, quote and alert is found', () {
       for (final source in const [
         '- one ||two||',
         '> one ||two||',
         '> [!NOTE]\n> one ||two||',
-        '| a |\n| - |\n| ||b|| |',
         '> ```\n> code\n> ```\n>\n> one ||two||',
       ]) {
         final painter = _painter(source);

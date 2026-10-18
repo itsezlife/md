@@ -28,6 +28,11 @@ import 'selection/selection_nested_blocks_test.dart'
 import 'selection/selection_registry_test.dart' as selection_registry_test;
 import 'selection/selection_test.dart' as selection_test;
 import 'selection/selection_widget_test.dart' as selection_widget_test;
+import 'spoiler/spoiler_controller_test.dart' as spoiler_controller_test;
+import 'spoiler/spoiler_golden_test.dart' as spoiler_golden_test;
+import 'spoiler/spoiler_layout_test.dart' as spoiler_layout_test;
+import 'spoiler/spoiler_paint_test.dart' as spoiler_paint_test;
+import 'spoiler/spoiler_widget_test.dart' as spoiler_widget_test;
 import 'theme/theme_test.dart' as theme_test;
 import 'widget/render_test.dart' as render_test;
 import 'widget/widget_test.dart' as widget_test;
@@ -58,6 +63,11 @@ void main() => group('Unit', () {
       selection_registry_test.main();
       selection_chrome_test.main();
       selection_nested_blocks_test.main();
+      spoiler_controller_test.main();
+      spoiler_layout_test.main();
+      spoiler_paint_test.main();
+      spoiler_widget_test.main();
+      spoiler_golden_test.main();
       line_clamp_test.main();
       render_test.main();
       widget_test.main();
