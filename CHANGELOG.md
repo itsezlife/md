@@ -1,4 +1,13 @@
-## Unreleased
+## 0.4.2
+
+Before this release a unicode emoji in a body was drawn at the font size, which a
+colour emoji font fits into a square smaller than the line, so it looked small
+beside an inline embed (1.2 times the font's height) and beside other platforms'
+clients. After it, a host that supplies an emoji scanner has each emoji run drawn
+at the font's height times a scale it chooses, with the line's height unchanged.
+The release tag is `v0.4.2`; depend on it by git ref as described under 0.3.0's
+*Fork status*. A selection over a hidden spoiler stays tinted under the dust and
+reveals nothing; a test pins the draw order.
 
 ### Theme
 - **ADDED**: `MarkdownThemeData.emojiRuns` (`MarkdownEmojiRuns`, a scanner of the
