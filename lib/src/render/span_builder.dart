@@ -25,6 +25,25 @@ TapGestureRecognizer? _buildTapRecognizer(
   return null;
 }
 
+/// Builds a tap recognizer that reports a mention-class span's scheme, id and
+/// name, read from the parser's `extra` rather than from any URL.
+TapGestureRecognizer? _buildMentionRecognizer(
+  MD$Span span,
+  void Function(String scheme, String? id, String name)? onTap,
+) {
+  if (onTap == null) return null;
+  if (span.extra
+      case <String, Object?>{
+        'scheme': String scheme,
+        'name': String name,
+      }) {
+    final id = span.extra?['id'];
+    return TapGestureRecognizer()
+      ..onTap = () => onTap(scheme, id is String ? id : null, name);
+  }
+  return null;
+}
+
 /// Whether any of [spans] paints an opaque / translucent fill behind glyphs
 /// (`monospace` / `highlight` backgrounds from [MarkdownThemeData]). Used to
 /// decide whether the selection tint must paint *above* the cached content
@@ -64,9 +83,13 @@ TextSpan paragraphFromMarkdownSpans({
         style: merge
             ? theme.textStyleFor(span.style).merge(style)
             : theme.textStyleFor(span.style),
-        recognizer: span.style.contains(MD$Style.link)
-            ? _buildTapRecognizer(span, theme.onLinkTap)
-            : null,
+        recognizer: switch (span.style) {
+          final s when s.contains(MD$Style.link) =>
+            _buildTapRecognizer(span, theme.onLinkTap),
+          final s when s.contains(MD$Style.mention) =>
+            _buildMentionRecognizer(span, theme.onMentionTap),
+          _ => null,
+        },
       );
   final children = <InlineSpan>[];
   final spoilerChildren = <int>[];

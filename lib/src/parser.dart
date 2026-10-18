@@ -800,6 +800,23 @@ String _applyInlineMath(String text, Map<String, String> replacements) {
   return (url: url, title: quoted ? rest.substring(1, rest.length - 1) : rest);
 }
 
+/// The mention-class scheme of a link destination (`mention`, `username` or
+/// `hashtag`), lower-cased, and the rest of the destination after its colon;
+/// null for any other destination.
+///
+/// The scheme is read off the destination once, here, so nothing downstream
+/// has to sniff a URL string to tell a mention from a link.
+({String scheme, String payload})? _mentionTarget(String url) {
+  final colon = url.indexOf(':');
+  // The longest scheme is `username`; anything with a later colon is a URL.
+  if (colon < 7 || colon > 8) return null;
+  final scheme = url.substring(0, colon).toLowerCase();
+  if (scheme != 'mention' && scheme != 'username' && scheme != 'hashtag') {
+    return null;
+  }
+  return (scheme: scheme, payload: url.substring(colon + 1));
+}
+
 /// Whether [c] is an inline whitespace code unit (space, tab, CR, LF).
 bool _isInlineSpace(int c) => c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D;
 
@@ -989,20 +1006,36 @@ List<MD$Span> _parseInlineSpans(String text, {Map<String, String>? math}) {
       final alt = target.title;
       links ??= <MD$Span>[];
       skip ??= Uint16List(length);
+      final label = text.substring(i + 1, labelEnd);
+      // A mention-class destination makes a mention span instead of a link;
+      // an image keeps its image style whatever its scheme.
+      final mention = img ? null : _mentionTarget(src);
       links.add(
         MD$Span(
           start: img ? i - 1 : i, // include the '!' for images
           end: urlEnd + 1, // include the closing ')'
-          text: text.substring(i + 1, labelEnd),
+          text: label,
           style: img
               ? MD$Style.image // image style
-              : MD$Style.link, // link style
-          extra: <String, Object?>{
-            'type': img ? 'image' : 'link',
-            if (img) 'src': src else 'href': src,
-            'url': src,
-            if (alt != null) 'alt': alt,
-          },
+              : mention != null
+                  ? MD$Style.mention // mention style, never with link
+                  : MD$Style.link, // link style
+          extra: mention != null
+              ? <String, Object?>{
+                  'type': 'mention',
+                  'scheme': mention.scheme,
+                  if (mention.scheme == 'mention') ...{
+                    'id': mention.payload,
+                    'name': label,
+                  } else
+                    'name': mention.payload,
+                }
+              : <String, Object?>{
+                  'type': img ? 'image' : 'link',
+                  if (img) 'src': src else 'href': src,
+                  'url': src,
+                  if (alt != null) 'alt': alt,
+                },
         ),
       );
 

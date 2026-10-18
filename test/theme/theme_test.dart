@@ -58,6 +58,68 @@ void main() => group('MarkdownThemeData', () {
         });
       });
 
+      group('mention paint', () {
+        test('defaults to the link colour, without bold or underline', () {
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            linkColor: Colors.blue,
+            linkStyle: const TextStyle(decoration: TextDecoration.underline),
+          );
+          final style = theme.textStyleFor(MD$Style.mention);
+          expect(style.color, Colors.blue);
+          expect(style.decoration, isNull);
+          expect(style.fontWeight, isNull);
+        });
+
+        test('mentionColor overrides the link colour', () {
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            linkColor: Colors.blue,
+            mentionColor: Colors.teal,
+          );
+          expect(theme.textStyleFor(MD$Style.mention).color, Colors.teal);
+          expect(theme.textStyleFor(MD$Style.link).color, Colors.blue);
+        });
+
+        test('emphasis combines with the mention colour', () {
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            mentionColor: Colors.teal,
+          );
+          final style = theme.textStyleFor(
+            MD$Style.mention.add(MD$Style.bold),
+          );
+          expect(style.color, Colors.teal);
+          expect(style.fontWeight, FontWeight.bold);
+        });
+
+        test('copyWith and lerp carry mentionColor and onMentionTap', () {
+          void tap(String scheme, String? id, String name) {}
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            mentionColor: Colors.teal,
+            onMentionTap: tap,
+          );
+          final copy = theme.copyWith();
+          expect(copy.mentionColor, Colors.teal);
+          expect(copy.onMentionTap, same(tap));
+          final mid = theme.lerp(copy.copyWith(), 0.4) as MarkdownThemeData;
+          expect(mid.mentionColor?.toARGB32(), Colors.teal.toARGB32());
+          expect(mid.onMentionTap, same(tap));
+        });
+
+        test('mergeTheme passes mentionColor and onMentionTap through', () {
+          void tap(String scheme, String? id, String name) {}
+          final theme = MarkdownThemeData.mergeTheme(
+            ThemeData(),
+            mentionColor: Colors.teal,
+            onMentionTap: tap,
+          );
+          expect(theme.mentionColor, Colors.teal);
+          expect(theme.onMentionTap, same(tap));
+        });
+      });
+
       group('copyWith', () {
         test('preserves builder and onLinkTap (regression)', () {
           var called = false;

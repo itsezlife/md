@@ -34,6 +34,7 @@ import 'spoiler/spoiler_layout_test.dart' as spoiler_layout_test;
 import 'spoiler/spoiler_paint_test.dart' as spoiler_paint_test;
 import 'spoiler/spoiler_widget_test.dart' as spoiler_widget_test;
 import 'theme/theme_test.dart' as theme_test;
+import 'widget/mention_paint_test.dart' as mention_paint_test;
 import 'widget/render_test.dart' as render_test;
 import 'widget/widget_test.dart' as widget_test;
 
@@ -50,6 +51,7 @@ void main() => group('Unit', () {
       nodes_test.main();
       highlight_test.main();
       theme_test.main();
+      mention_paint_test.main();
       horizontal_pan_test.main();
       selection_test.main();
       markup_formatter_test.main();
