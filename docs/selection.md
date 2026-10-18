@@ -121,9 +121,24 @@ renderedRange, TextRange? sourceRange /* currently always null */, MD$Block bloc
 `getText([formatter])` = `(formatter ?? controller.formatter).format(selectedContent())`.
 
 - `MarkdownSelectionFormatter` — `String format(MarkdownSelectedContent)`.
-- `MarkdownPlainTextFormatter` (default) — joins block slices within a doc by
-  `blockSeparator` (`'\n'`), docs by `documentSeparator` (`'\n\n'`); empty blocks
-  skipped. Implement your own for "copy as Markdown" etc.
+- `MarkdownSourceFormatter` (default) — the selection as markdown source,
+  inline styles included (`**bold**`, `*italic*`, `__underline__`, `~~strike~~`,
+  `||spoiler||` (copied revealed), `==highlight==`, `` `code` ``,
+  `[x](url)`, `[@x](mention:id)` / `[@x](username:x)` / `[#x](hashtag:x)`,
+  `![alt](src)`), with literal specials backslash-escaped, so the copy parses
+  back to the spans it came from. A fully selected block keeps its structure
+  (it is a `MarkdownMarkupFormatter` underneath); a selection that starts or
+  ends inside a styled run closes and reopens the marks, and a partly selected
+  block is copied as that slice without block markers. What the parser cannot
+  read back keeps its text and loses its style: whitespace at the edge of a
+  styled run is written outside the marks, a code run holding a backtick is
+  plain text, and an underline that starts or ends inside a word is dropped.
+- `MarkdownSelectionFormatter.plain` (a `MarkdownPlainTextFormatter`) — the
+  previous default: joins block slices within a doc by `blockSeparator`
+  (`'\n'`), docs by `documentSeparator` (`'\n\n'`); empty blocks skipped.
+  Pass it to `MarkdownSelectionController(formatter: …)` to copy text only.
+- `MarkdownMarkupFormatter` — block structure only, inline styles as plain text.
+  Implement your own `MarkdownSelectionFormatter` for other targets.
 
 ### `markdownBlockRenderedText(block)` — the linearization
 

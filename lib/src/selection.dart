@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart' show LayerLink;
 
 import 'markdown.dart';
+import 'markdown_source_writer.dart';
 import 'nodes.dart';
 
 bool get _isDesktopPlatform => switch (defaultTargetPlatform) {
@@ -317,7 +318,7 @@ final class MarkdownSelectedDocument {
 /// The structured result of a selection, spanning one or more documents.
 ///
 /// This is the canonical representation; render it to a string with a
-/// [MarkdownSelectionFormatter] (or the default [MarkdownPlainTextFormatter]).
+/// [MarkdownSelectionFormatter] (the default is [MarkdownSourceFormatter]).
 @immutable
 final class MarkdownSelectedContent {
   /// Creates structured selected content.
@@ -332,18 +333,24 @@ final class MarkdownSelectedContent {
   /// Whether something is selected.
   bool get isNotEmpty => documents.isNotEmpty;
 
-  /// Convenience: format with the default [MarkdownPlainTextFormatter].
+  /// Convenience: format with [MarkdownSelectionFormatter.plain].
   String toPlainText() => const MarkdownPlainTextFormatter().format(this);
 }
 
 /// Turns [MarkdownSelectedContent] into a string. Implement this to customize
 /// how a selection is copied (e.g. "Copy as Markdown").
 abstract interface class MarkdownSelectionFormatter {
+  /// Text only: no markers, no block structure. This was the default before
+  /// [MarkdownSourceFormatter] took over; pass it to a
+  /// [MarkdownSelectionController] to keep copying plain text.
+  static const MarkdownSelectionFormatter plain = MarkdownPlainTextFormatter();
+
   /// Formats [content] into a single string.
   String format(MarkdownSelectedContent content);
 }
 
-/// The default formatter: joins block slices with [blockSeparator] and
+/// The text-only formatter, reachable as [MarkdownSelectionFormatter.plain]:
+/// joins block slices with [blockSeparator] and
 /// documents with [documentSeparator]. Structural blocks (empty text) are
 /// skipped. Table/list cell structure is already baked into each block's text.
 @immutable
@@ -426,39 +433,53 @@ final class MarkdownMarkupFormatter implements MarkdownSelectionFormatter {
     final full = markdownBlockRenderedText(seg.block);
     final whole =
         seg.renderedRange.start <= 0 && seg.renderedRange.end >= full.length;
-    if (!whole) return seg.text;
-    return seg.block.map<String>(
-      paragraph: (p) => _spans(p.spans),
-      heading: (h) => '${'#' * h.level.clamp(1, 6)} ${_spans(h.spans)}',
-      quote: (q) => _prefixLines(
-        q.blocks.isEmpty
-            ? _spans(q.spans)
-            : _nestedBlocksRenderedText(q.blocks),
-        '> ',
-      ),
-      alert: (a) =>
-          // ignore: lines_longer_than_80_chars
-          '> [!${a.alert.marker}]\n${_prefixLines(a.blocks.isEmpty ? _spans(a.spans) : _nestedBlocksRenderedText(a.blocks), '> ')}',
-      code: (c) => '```${c.language ?? ''}\n${c.text}\n```',
-      list: (l) => _list(l.items, 0),
-      table: _table,
-      divider: (_) => '---',
-      spacer: (_) => '',
-    );
+    return whole ? _wholeBlock(seg.block) : _partialBlock(seg);
   }
+
+  // --- Hooks: what [MarkdownSourceFormatter] writes differently ---
+
+  /// A boundary block that is only partly selected.
+  String _partialBlock(MarkdownSelectedBlock seg) => seg.text;
+
+  /// The inline content of a block, from its spans.
+  String _inline(List<MD$Span> spans) => _spans(spans);
+
+  /// The blocks nested in a quote or an alert.
+  String _nested(List<MD$Block> blocks) => _nestedBlocksRenderedText(blocks);
+
+  /// A fenced code block.
+  String _fence(MD$Code c) => '```${c.language ?? ''}\n${c.text}\n```';
+
+  String _wholeBlock(MD$Block block) => block.map<String>(
+        paragraph: (p) => _inline(p.spans),
+        heading: (h) => '${'#' * h.level.clamp(1, 6)} ${_inline(h.spans)}',
+        quote: (q) => _prefixLines(
+          q.blocks.isEmpty ? _inline(q.spans) : _nested(q.blocks),
+          '> ',
+        ),
+        alert: (a) {
+          final body = a.blocks.isEmpty ? _inline(a.spans) : _nested(a.blocks);
+          return '> [!${a.alert.marker}]\n${_prefixLines(body, '> ')}';
+        },
+        code: _fence,
+        list: (l) => _list(l.items, 0),
+        table: _table,
+        divider: (_) => '---',
+        spacer: (_) => '',
+      );
 
   String _list(List<MD$ListItem> items, int depth) {
     final out = <String>[];
     for (final item in items) {
       final box = item.isTask ? (item.checked! ? '[x] ' : '[ ] ') : '';
-      out.add('${listIndent * depth}${item.marker} $box${_spans(item.spans)}');
+      out.add('${listIndent * depth}${item.marker} $box${_inline(item.spans)}');
       if (item.children.isNotEmpty) out.add(_list(item.children, depth + 1));
     }
     return out.join('\n');
   }
 
   String _table(MD$Table t) {
-    String row(MD$TableRow r) => '| ${r.cells.map(_spans).join(' | ')} |';
+    String row(MD$TableRow r) => '| ${r.cells.map(_inline).join(' | ')} |';
     final cols = t.header.cells.length;
     return <String>[
       row(t.header),
@@ -469,6 +490,165 @@ final class MarkdownMarkupFormatter implements MarkdownSelectionFormatter {
 
   String _prefixLines(String text, String prefix) =>
       text.split('\n').map((line) => '$prefix$line').join('\n');
+}
+
+// --- Markdown source formatter ---
+
+/// Copies a selection as markdown source, inline styles included: the default
+/// formatter of [MarkdownSelectionController].
+///
+/// It is [MarkdownMarkupFormatter] (headings, quotes, alerts, lists, tables and
+/// fences rebuilt for a fully selected block) with the inline layer written
+/// too. The marks are the dialect the chat composer writes, read by this
+/// package's parser as well:
+///
+/// | Span | Written as |
+/// | --- | --- |
+/// | bold, italic, underline, strike | `**x**` `*x*` `__x__` `~~x~~` |
+/// | spoiler (copied revealed) | `\|\|x\|\|` |
+/// | highlight | `==x==` |
+/// | code | `` `x` `` |
+/// | link | `[x](url)`, `[x](url "title")` |
+/// | mention | `[@x](mention:id)` |
+/// | username, hashtag | `[@x](username:x)` `[#x](hashtag:x)` |
+/// | image | `![alt](src)` |
+///
+/// Literal `\ * ` [ ]`, underscores outside words, runs of `~ | =` and
+/// line-start block markers are backslash-escaped, so a copy parses back to
+/// the spans it was made from. A selection that starts or ends inside a styled
+/// run closes and reopens the marks, so the copy is the selected slice with its
+/// styles, and a partly selected block is copied as that slice (no block
+/// markers), the way [MarkdownMarkupFormatter] does.
+///
+/// Where the parser cannot read a span back, the text wins over the style:
+/// whitespace at the edge of a styled run is written outside its marks, a code
+/// run holding a backtick is written as plain text, and an underline that
+/// starts or ends inside a word is dropped (the parser's `__` must sit at a
+/// word boundary, or it reads as literal underscores that spoil the text).
+///
+/// Pass [MarkdownSelectionFormatter.plain] to a controller to copy text only.
+@immutable
+final class MarkdownSourceFormatter extends MarkdownMarkupFormatter {
+  /// Creates a markdown source formatter.
+  const MarkdownSourceFormatter({
+    super.blockSeparator,
+    super.documentSeparator,
+    super.listIndent,
+  });
+
+  @override
+  String _inline(List<MD$Span> spans) => MarkdownSourceWriter.inline(spans);
+
+  @override
+  String _nested(List<MD$Block> blocks) {
+    final parts = <String>[];
+    for (final block in blocks) {
+      final part = _wholeBlock(block);
+      if (part.isNotEmpty) parts.add(part);
+    }
+    return parts.join('\n');
+  }
+
+  // The fence is one backtick longer than any run of backticks in the code
+  // (three at least), so the code cannot close it early.
+  @override
+  String _fence(MD$Code c) {
+    var longest = 0;
+    var run = 0;
+    for (final unit in c.text.codeUnits) {
+      run = unit == 0x60 ? run + 1 : 0;
+      if (run > longest) longest = run;
+    }
+    final fence = '`' * (longest < 3 ? 3 : longest + 1);
+    return '$fence${c.language ?? ''}\n${c.text}\n$fence';
+  }
+
+  // The selected slice with its styles. Code is copied as it is: nothing in a
+  // fence is markup.
+  @override
+  String _partialBlock(MarkdownSelectedBlock seg) {
+    if (seg.block is MD$Code) return seg.text;
+    final range = seg.renderedRange;
+    return MarkdownSourceWriter.inline(
+      _slice(_styledRuns(seg.block), range.start, range.end),
+    );
+  }
+}
+
+/// The spans of [block] whose texts concatenate to
+/// [markdownBlockRenderedText]: separators are unstyled spans of their own.
+List<MD$Span> _styledRuns(MD$Block block) {
+  MD$Span separator(String text) => MD$Span(start: 0, end: 0, text: text);
+  List<MD$Span> join(Iterable<List<MD$Span>> parts, String text) {
+    final out = <MD$Span>[];
+    for (final part in parts) {
+      if (out.isNotEmpty) out.add(separator(text));
+      out.addAll(part);
+    }
+    return out;
+  }
+
+  List<MD$Span> nested(List<MD$Block> blocks) => join(
+        [
+          for (final b in blocks)
+            if (markdownBlockRenderedText(b).isNotEmpty) _styledRuns(b),
+        ],
+        '\n',
+      );
+
+  void collect(List<MD$ListItem> items, List<List<MD$Span>> out) {
+    for (final item in items) {
+      out.add(item.spans);
+      if (item.children.isNotEmpty) collect(item.children, out);
+    }
+  }
+
+  return block.map<List<MD$Span>>(
+    paragraph: (p) => p.spans,
+    heading: (h) => h.spans,
+    quote: (q) => q.blocks.isEmpty ? q.spans : nested(q.blocks),
+    alert: (a) => a.blocks.isEmpty ? a.spans : nested(a.blocks),
+    code: (c) => <MD$Span>[separator(c.text)],
+    list: (l) {
+      final items = <List<MD$Span>>[];
+      collect(l.items, items);
+      return join(items, '\n');
+    },
+    table: (t) => join(
+      [
+        join(t.header.cells, '\t'),
+        for (final row in t.rows) join(row.cells, '\t'),
+      ],
+      '\n',
+    ),
+    divider: (_) => const <MD$Span>[],
+    spacer: (_) => const <MD$Span>[],
+  );
+}
+
+/// [runs] cut to the rendered-text range [from, to); a cut span keeps its
+/// style and extra.
+List<MD$Span> _slice(List<MD$Span> runs, int from, int to) {
+  final out = <MD$Span>[];
+  var at = 0;
+  for (final run in runs) {
+    final end = at + run.text.length;
+    final lo = from > at ? from : at;
+    final hi = to < end ? to : end;
+    if (lo < hi) {
+      out.add(
+        MD$Span(
+          start: 0,
+          end: hi - lo,
+          text: run.text.substring(lo - at, hi - at),
+          style: run.style,
+          extra: run.extra,
+        ),
+      );
+    }
+    at = end;
+  }
+  return out;
 }
 
 /// Decides how a selection anchor is remapped when a document's model is
@@ -727,10 +907,11 @@ class _DocEntry {
 class MarkdownSelectionController extends ChangeNotifier
     implements MarkdownHorizontalPanStore {
   /// Creates a controller with an optional [reconciliation] policy (defaults to
-  /// [MarkdownReconciliationPolicy.contentAnchored]) and default [formatter].
+  /// [MarkdownReconciliationPolicy.contentAnchored]) and default [formatter]
+  /// ([MarkdownSourceFormatter]: copy as markdown).
   MarkdownSelectionController({
     MarkdownReconciliationPolicy? reconciliation,
-    MarkdownSelectionFormatter formatter = const MarkdownPlainTextFormatter(),
+    MarkdownSelectionFormatter formatter = const MarkdownSourceFormatter(),
     MarkdownSelectionGroup? group,
   })  : reconciliation = reconciliation ??
             const MarkdownReconciliationPolicy.contentAnchored(),
