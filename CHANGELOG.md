@@ -1,3 +1,39 @@
+## Unreleased
+
+Before this change a selection painted a box for every run of the text, each as
+tall as the run: an emoji drawn larger than the text, a text run and an inline
+embed's placeholder were three different heights, a line stretched by
+`TextStyle.height` left a gap above and below each, and an embed the selection
+covered was tinted a second time *over* the embed. Over a hidden spoiler that
+drew a different patch at the emoji's positions than at the text's, so the
+selection showed where the emoji were. After it, a selection is one rectangle per
+line, the line's whole height, behind everything it covers (glyphs, emoji runs
+and embeds alike), and an embed is never tinted. Hosts that read the rectangles
+(`MarkdownSelectionController.localSelectionRects`, `MarkdownSelectionSurface`'s
+box queries) get the same rectangles the render object draws.
+
+### Selection
+- **CHANGED**: `SelectableBlockPainter.boxesForRange` of the default painters
+  (`SelectableTextBlock`, `MultiPainterSelectable`) returns, for each line, one
+  rectangle as tall as the line (`BoxHeightStyle.max`) from the first selected
+  glyph to the last, with the runs of the line joined, instead of one box per
+  style run at the run's own height. Neighbouring lines touch, so a multi-line
+  selection is one block of rectangles. A custom `SelectableBlockPainter` that
+  implements `boxesForRange` itself is not changed.
+- **CHANGED**: the highlight is drawn as one `Path` per block, so no seam shows
+  where two rectangles meet and a translucent tint is not drawn twice where they
+  overlap.
+- **FIXED**: a selection no longer tints an inline embed it covers. The embeds
+  pass is the last, after the above-content highlight too, and draws the embed
+  as it is; the highlight shows through a transparent embed and round an opaque
+  one, as Telegram Android (selection, then the text layout with its emoji spans
+  and images), iOS (the highlight node is below the text node) and Desktop (the
+  selection fill is drawn before each emoji) do.
+- **FIXED**: a selection over a hidden spoiler is the same rectangle at every
+  position, so the patch no longer shows where the emoji and embeds are.
+- **CHANGED**: `MarkdownPainter.paintEmbeds` (`@internal`) lost its selection
+  parameters; it never tints.
+
 ## 0.4.2
 
 Before this release a unicode emoji in a body was drawn at the font size, which a

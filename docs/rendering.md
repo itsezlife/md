@@ -67,10 +67,9 @@ from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
   3. the pannable blocks (clip and translate, so a pan moves no picture);
   4. the spoiler pass: the dust fill over each hidden spoiler, and the ripple
      (see [Spoilers](#spoilers));
-  5. the embeds pass (see [Inline embeds](#inline-embeds)), each embed at the
-     opacity its spoiler leaves it;
-  6. the selection tint above opaque chrome, over code fences, table fills and
-     embeds.
+  5. the selection tint above opaque chrome, over code fences and table fills;
+  6. the embeds pass (see [Inline embeds](#inline-embeds)), each embed at the
+     opacity its spoiler leaves it. Last, so no highlight is ever over an embed.
   A mention has no step of its own: it is colour and no underline on a text run,
   so it lives in step 2 or 3 with the rest of the text.
 - **Hit-testing** (`_blockIndexForDy`): **binary search** over `_blockOffsets`.
@@ -118,7 +117,7 @@ implementation; a host adapts its own asset type to it and hands it over as
   `dispose`. `$List` and `$Table` build their paragraphs on every layout, so
   they release the previous ones first.
 - **Paint.** `MarkdownPainter.paintEmbeds` is the third pass, run by the render
-  object right after `_painter.paint` and before the above-content tint. It walks
+  object last, after `_painter.paint` and the above-content tint. It walks
   each block's text fragments, reads `TextPainter.inlinePlaceholderBoxes` through
   `MarkdownEmbedOffsets`, and calls `embed.paint(canvas, span.paintRectFor(box),
   context)`. The context's tint is the colour of the text the embed sits in (its
@@ -126,9 +125,8 @@ implementation; a host adapts its own asset type to it and hands it over as
   hidden spoiler, the ripple's progress while revealing, 1 elsewhere). The
   placeholder paints nothing into the picture. A block that pans (`PannedContent`,
   the table) is clipped and translated first, so an embed moves with its cell.
-  A selection tints an embed it covers *over* the embed, because an opaque embed
-  hides the under-glyph tint; blocks that already tint above the picture are left
-  to that pass.
+  A selection never tints an embed: its highlight is behind the embed, as it is
+  behind a glyph (see [Selection highlight](#selection-highlight)).
 - **Invalidation.** `MarkdownEmbedHost` subscribes to each embed it resolves and
   unsubscribes before it disposes it. A signal reaches the render object, which
   coalesces the frame's signals into one `markNeedsPaint`
@@ -272,6 +270,67 @@ and expose `fragments` + `renderedText`.
 
 `$Divider`/`$Spacer` are not selectable; `$Code` is selectable but has no link
 taps; only `$List`/`$Table` use `MultiPainterSelectable`.
+
+## Selection highlight
+
+One look for text, emoji and embeds. `boxesForRange` of the default painters
+(`SelectableTextBlock`, `MultiPainterSelectable`) answers the rectangles the
+highlight is drawn from, and `MarkdownPainter.paintHighlight` draws them.
+
+- **Per line, one rectangle, the line's height.** `getBoxesForSelection` answers
+  a box per style run at the run's own height: a text run is the font's, an emoji
+  run drawn at `emojiScale` times the font is taller, an embed's placeholder is the
+  font's height centred on the line, and a `TextStyle.height` line leaves a gap
+  above and below each. Drawn as they come they read as separate boxes of
+  different heights. The painters ask with `BoxHeightStyle.max` (every run takes
+  the line's top and bottom) and join the boxes that touch on a line, so a line is
+  one rectangle from the first selected glyph to the last. Lines abut, so a
+  multi-line selection is one block.
+- **Behind everything.** The highlight is under the glyph picture (and, for a
+  block with opaque chrome, above that block's picture but still before the
+  embeds). The embeds pass is last: an embed is never tinted, an opaque one covers
+  the highlight and a transparent one shows it through.
+- **One `Path` per block, drawn once**: no seam where rectangles touch, no double
+  tint where they overlap (a translucent selection colour).
+- **Over a hidden spoiler** the rectangle is the same at every position, and the
+  dust (the spoiler fill, a live pass over the picture) covers it uniformly: what
+  the patch looks like does not depend on whether an emoji or an embed is under it
+  (the embed is hidden and nothing is drawn over where it was).
+- **Not drawn**: Android's 3 dp padding at the selection's ends and its rounded
+  corners (see the table below). The rectangles are plain.
+
+### What Telegram does (the reference), and where this differs
+
+Rules traced from the three reference checkouts and, where a checkout does not
+carry the file, from the upstream sources (flagged below).
+
+| Platform | Rule | Source |
+|---|---|---|
+| Android (authority) | The selection is drawn **before** the text layout, so emoji spans and images are over it: `ChatMessageCell` calls `getTextSelectionHelper().draw(...)` and then `SpoilerEffect.renderWithRipple(..., block.textLayout, ...)`. | `Telegram/TMessagesProj/.../Cells/ChatMessageCell.java` (the block loop: `delegate.getTextSelectionHelper().draw` then `renderWithRipple`) |
+| Android | The shape is `Layout.getSelectionPath` per line, each rectangle **stretched to the line's top and bottom** (`sy = lineH / lineHWithoutSpacing`), interior lines filled from `getLineLeft` to `getLineRight`, rectangles of one line unioned (`CornerPath.setRectsUnionDiffDelta(1)`) and drawn as one path. No rectangle per emoji or image. | `TextSelectionHelper.java` `drawSelection`, `drawLine`; `Components/CornerPath.java` |
+| Android | Ends of the selection are padded by `cornerRadius / 2` (3 dp) and corners rounded with `CornerPathEffect(dp(6))`. | `TextSelectionHelper.java` constructor, `drawLine` |
+| Android | Colour: `key_chat_inTextSelectionHighlight` `0x5062A9E3`, out `0x2E3F9923` (defaults), no extra tint on images. | `ThemeColors.java` |
+| Android | A spoiler is a patch over the text layout drawn after the selection; the selection under it is the same line rectangle. | `SpoilerEffect.renderWithRipple` after `TextSelectionHelper.draw` |
+| iOS | `TextNodeLayout.rangeRects` returns **one rectangle per line**, `width = |rightOffset - leftOffset|`, height = the line frame's. `TextSelectionNode` closes gaps of up to 4 pt between lines (`deltaY * 0.5` each) and draws the union as a `LinkHighlightingNode` (radius 2, inset 1). The highlight node is inserted **below** the text node (`insertSubnode(highlightAreaNode, belowSubnode: textNode.textNode)`, `ChatMessageTextBubbleContentNode` - upstream file, see below). | `telegram-ios/submodules/Display/Source/TextNode.swift` `rangeRects`; `submodules/TextSelectionNode/Sources/TextSelectionNode.swift` `updateSelection` |
+| Desktop | `Renderer::fillSelectRange` fills **before** the item is drawn (the emoji or custom emoji is painted after). Text and unicode emoji fill `(_y + _yDelta, _fontHeight)`; a custom emoji fills its own box, but the fill is widened to at least the font's line (`top = min(top, defaultLineTop)`, `bottom = max(.., defaultLineBottom)`). A spoiler's selected part is a separate patch in the same ranges. | upstream `lib_ui` `ui/text/text_renderer.cpp` (not in the sparse `tdesktop` checkout, which has no `lib_ui`) |
+
+Divergences, written down:
+
+1. **Plain rectangles.** Android rounds the union's corners (6 dp) and pads its
+   ends (3 dp); iOS rounds by 2 pt. This package fills plain rectangles: the
+   gesture, handle and toolbar geometry read the same rectangles, and a rounded
+   contour is a separate decision (a host that wants Telegram's smooth contour
+   builds it from the same rectangles). Follow-up if wanted.
+2. **Desktop's custom emoji fill can be taller than the line** (it unions the
+   emoji's own box with the line); here every rectangle is the line, which is
+   Android's and iOS's rule, and what the ticket asks for.
+3. **Blocks that paint opaque chrome** (code fence, table fill) tint above their
+   own glyph picture, not under it, so their text is tinted as `SelectableRegion`
+   does; embeds are still drawn after, untinted. Android has no such block
+   (its code block fill is under the text, drawn before the selection).
+4. **Selecting through a gap between lines** (`TextStyle.height` > 1): Android adds
+   one pixel (`getLineBottom(i) + 1`), iOS splits a gap of up to 4 pt; here a
+   line's rectangle already spans its own line box, so lines touch exactly.
 
 ## Spoilers
 
@@ -420,6 +479,14 @@ Public (in `flutter_md.dart`'s `show` list): the framework
   backgrounds) so the tint stays visible there. Drags/streaming/pan never rebuild
   the glyph cache. Color = `controller.selectionColor ?? _kSelectionColor`
   (`0x552196F3`). Pannable-block highlights are clipped to the block viewport.
+- **One highlight look.** A line of selected content is **one rectangle, the
+  line's whole height**, whatever it holds (text, an emoji run drawn larger than
+  the text, an inline embed): same top and bottom, no per-run boxes, no gaps, runs
+  joined, lines touching. It is **behind** glyphs, emoji and embeds, and **no
+  highlight is ever drawn over an embed** (the embeds pass is last). Over a hidden
+  spoiler it is the same rectangle at every position, so nothing about what is
+  underneath can be inferred. It is drawn as one `Path` per block (no seam, no
+  double tint). See [Selection highlight](#selection-highlight).
 - **An embed, a spoiler or a mention never re-records the picture per frame.**
   - *Embed:* it paints in a live pass; a signal repaints, a change of resolver or
     pixel ratio rebuilds.

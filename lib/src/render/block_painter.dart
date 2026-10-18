@@ -248,15 +248,14 @@ mixin SelectableTextBlock
   @override
   List<Rect> boxesForRange(int start, int end) {
     final snapped = _offsets.snap(TextRange(start: start, end: end));
-    return selectionPainter
-        .getBoxesForSelection(
-          TextSelection(
-            baseOffset: _offsets.toPainter(snapped.start),
-            extentOffset: _offsets.toPainter(snapped.end, end: true),
-          ),
-        )
-        .map((box) => box.toRect().shift(selectionOrigin))
-        .toList(growable: false);
+    return _highlightRects(
+      selectionPainter,
+      TextSelection(
+        baseOffset: _offsets.toPainter(snapped.start),
+        extentOffset: _offsets.toPainter(snapped.end, end: true),
+      ),
+      selectionOrigin,
+    );
   }
 
   @override
@@ -411,15 +410,14 @@ mixin MultiPainterSelectable
       if (localEnd <= localStart) continue;
       final snapped =
           fragment._offsets.snap(TextRange(start: localStart, end: localEnd));
-      final boxes = fragment.painter.getBoxesForSelection(
+      out.addAll(_highlightRects(
+        fragment.painter,
         TextSelection(
           baseOffset: fragment._offsets.toPainter(snapped.start),
           extentOffset: fragment._offsets.toPainter(snapped.end, end: true),
         ),
-      );
-      for (final box in boxes) {
-        out.add(box.toRect().shift(fragment.origin));
-      }
+        fragment.origin,
+      ));
     }
     return out;
   }
@@ -479,6 +477,58 @@ mixin MultiPainterSelectable
     return best;
   }
 }
+
+/// The highlight of [selection] in [painter] (painter offsets), moved by
+/// [origin]: for each line, the rectangle from the first selected glyph to the
+/// last, the line's whole height, in reading order.
+///
+/// `getBoxesForSelection` answers a box per run, as tall as the run: a text
+/// run is the text's height, an emoji run drawn larger than the text is
+/// taller, an inline embed's placeholder is the font's height centred on the
+/// line, and a line stretched by `TextStyle.height` leaves a gap above and
+/// below every one of them. Painted as they come they read as separate boxes
+/// of different heights (and, over a spoiler, as a map of where the emoji
+/// are). Telegram draws the rectangle of the *line* for the selected range
+/// whatever is in it, with the glyphs, emoji and images over it: Android
+/// stretches each `Layout.getSelectionPath` rectangle to the line's top and
+/// bottom (`TextSelectionHelper.drawLine`), iOS fills the line frame
+/// (`TextNodeLayout.rangeRects`), Desktop never fills less than the font's
+/// line (`Renderer::fillSelectRange`).
+///
+/// [BoxHeightStyle.max] gives every run of a line the line's top and bottom,
+/// and boxes that touch on one line are then joined, so the rectangle has no
+/// seam where the style changes. Lines abut, so a multi-line highlight is
+/// one block.
+List<Rect> _highlightRects(
+  TextPainter painter,
+  TextSelection selection,
+  Offset origin,
+) {
+  final rects = <Rect>[];
+  for (final box in painter.getBoxesForSelection(
+    selection,
+    boxHeightStyle: BoxHeightStyle.max,
+  )) {
+    final rect = box.toRect();
+    if (rects.isNotEmpty) {
+      final last = rects.last;
+      final sameLine = (last.top - rect.top).abs() < _kSameLineEpsilon &&
+          (last.bottom - rect.bottom).abs() < _kSameLineEpsilon;
+      if (sameLine &&
+          last.left <= rect.right + _kSameLineEpsilon &&
+          rect.left <= last.right + _kSameLineEpsilon) {
+        rects[rects.length - 1] = last.expandToInclude(rect);
+        continue;
+      }
+    }
+    rects.add(rect);
+  }
+  return <Rect>[for (final rect in rects) rect.shift(origin)];
+}
+
+/// How far two boxes may be apart in a line's direction, or differ in height,
+/// and still be one run of that line: layout rounds to a fraction of a pixel.
+const double _kSameLineEpsilon = 0.5;
 
 /// The rendered offset and affinity at [local], a point in [painter]'s own
 /// coordinates.

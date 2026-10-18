@@ -74,7 +74,7 @@ void main() {
       expect(
         render,
         paints
-          ..rect(color: selection.selectionColor)
+          ..path(color: selection.selectionColor)
           ..clipRRect()
           ..rect(),
       );

@@ -528,24 +528,23 @@ class MarkdownPainter {
       final range = rangeOf(_sourceIndices[i]);
       if (range == null || range.start >= range.end) continue;
       final top = _blockOffsets[i];
-      final boxes = painter.boxesForRange(range.start, range.end);
+      // One path for the block, drawn once: where two rectangles touch (the
+      // lines of a paragraph, the runs of one line) there is no seam, and
+      // where they overlap a translucent tint is not drawn twice.
+      final shape = Path();
+      for (final rect in painter.boxesForRange(range.start, range.end)) {
+        shape.addRect(rect.shift(Offset(0, top)));
+      }
       if (painter is HorizontallyPannableBlock) {
-        final viewport = Rect.fromLTWH(
-          0,
-          top,
-          painter.size.width,
-          painter.size.height,
-        );
-        canvas.save();
-        canvas.clipRect(viewport);
-        for (final rect in boxes) {
-          canvas.drawRect(rect.shift(Offset(0, top)), paint);
-        }
-        canvas.restore();
+        canvas
+          ..save()
+          ..clipRect(
+            Rect.fromLTWH(0, top, painter.size.width, painter.size.height),
+          )
+          ..drawPath(shape, paint)
+          ..restore();
       } else {
-        for (final rect in boxes) {
-          canvas.drawRect(rect.shift(Offset(0, top)), paint);
-        }
+        canvas.drawPath(shape, paint);
       }
     }
   }
@@ -1213,23 +1212,21 @@ class MarkdownPainter {
   // --- Inline embeds: the live pass ---
 
   /// Paints every visible inline embed into the square its placeholder
-  /// reserved, on the live canvas after the glyph [Picture] and before the
-  /// above-content selection tint.
+  /// reserved, on the live canvas after the glyph [Picture] and the selection
+  /// highlight.
   ///
   /// This is the third pass beside the cached picture and the pannable blocks:
   /// the placeholder paints nothing into the picture, so an embed that
   /// animates costs a repaint and never a re-recording or a layout. Blocks past
   /// the painted height are skipped by the guard that bounds the picture.
   ///
-  /// A selection tints an embed it covers, over the embed: the under-glyph
-  /// tint of a text block is hidden by an opaque embed. Blocks that already
-  /// paint their tint above the picture are left to that pass.
-  void paintEmbeds(
-    Canvas canvas,
-    Size size,
-    TextRange? Function(int sourceIndex) rangeOf,
-    Paint highlight,
-  ) {
+  /// An embed is never tinted: the highlight is behind it (as behind a glyph),
+  /// so an opaque embed shows as it is and a transparent one shows the
+  /// highlight through, and a hidden spoiler leaves nothing where an embed
+  /// was. Android paints a selection under its emoji spans and images the
+  /// same way (`ChatMessageCell` draws the selection, then the text layout
+  /// with the spans).
+  void paintEmbeds(Canvas canvas, Size size) {
     final host = _embeds;
     if (host == null || host.isEmpty) return;
     if (_needsLayout || _isEmpty || size.isEmpty || size.isInfinite) return;
@@ -1238,25 +1235,16 @@ class MarkdownPainter {
       final top = _blockOffsets[i];
       if (overflow && top > size.height) break;
       final block = _blockPainters[i];
-      final tintable = block is SelectableBlockPainter &&
-          !block.selectionHighlightAboveCachedContent;
-      final range = tintable ? rangeOf(_sourceIndices[i]) : null;
       final panned = switch (block) {
         final PannedContent pannable => pannable.pushPanTransform(canvas, top),
         _ => false,
       };
-      for (final (painter, origin, textStart) in _textFragments(block)) {
+      for (final (painter, origin, _) in _textFragments(block)) {
         final offsets = MarkdownEmbedOffsets.of(painter);
         if (offsets.isIdentity) continue;
         final boxes = painter.inlinePlaceholderBoxes;
         if (boxes == null) continue;
         final shift = origin + Offset(0, top);
-        final local = range == null
-            ? null
-            : TextRange(
-                start: range.start - textStart,
-                end: range.end - textStart,
-              );
         for (final entry in offsets.entries) {
           final embed = entry.span.embed;
           if (!embed.visible || entry.placeholderIndex >= boxes.length) {
@@ -1271,9 +1259,6 @@ class MarkdownPainter {
           if (opacity > 0) {
             embed.paint(
                 canvas, rect, _paintContextFor(painter, entry, opacity));
-          }
-          if (local != null && entry.isCoveredBy(local)) {
-            canvas.drawRect(rect, highlight);
           }
         }
       }

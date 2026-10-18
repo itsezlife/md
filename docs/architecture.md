@@ -73,9 +73,10 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
   horizontal pan/fling must not invalidate it. **`HorizontallyPannableBlock`s are
   omitted from the Picture** and painted live afterward (clip + translate), so
   scroll offset is never baked into the cache.
-- **Highlight outside the cache.** The selection highlight is drawn _after_ and
-  _outside_ the cached `Picture` (on top of glyphs), so drags/streaming/pan
-  repaint only the highlight layer. For pannable blocks, highlight rects are
+- **Highlight outside the cache.** The selection highlight is drawn _outside_
+  the cached `Picture` (under the glyphs, and again above it for blocks with
+  opaque chrome), one rectangle per line and never over an inline embed, so
+  drags/streaming/pan repaint only the highlight layer. For pannable blocks, highlight rects are
   clipped to the block viewport. `MarkdownRenderObject.isRepaintBoundary` is true
   whenever a controller is attached, isolating those repaints.
 - **Offset-space agreement.** A `SelectableBlockPainter`'s `renderedText` and

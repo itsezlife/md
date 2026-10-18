@@ -432,7 +432,9 @@ void main() {
       });
     }
 
-    testWidgets('a selection across one embed tints it', (tester) async {
+    testWidgets(
+        'a selection across one embed is behind it, which is not tinted',
+        (tester) async {
       final controller = MarkdownSelectionController()
         ..setDocuments(<MarkdownDocumentRef>[
           MarkdownDocumentRef(id: 'd', model: Markdown.fromString(source)),
