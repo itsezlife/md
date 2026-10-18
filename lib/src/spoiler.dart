@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
+import 'package:meta/meta.dart' as meta show internal;
 
 /// Which documents have their `||spoilers||` revealed, and where the reveal
 /// started.
@@ -22,6 +23,14 @@ import 'package:flutter/painting.dart';
 /// text selection); [hide] exists for a host that decides otherwise, or that
 /// forgets a document.
 ///
+/// **The dust clock.** Hidden spoilers are covered by moving particles. The
+/// package owns no clock for them: the host calls [advance] with a monotonic
+/// time (the shared playback clock of the app, a `Ticker`'s elapsed) and every
+/// hidden spoiler paints the next frame. [wantsTicks] says whether anything
+/// is listening, so the host can stop its clock while no hidden spoiler is
+/// mounted. Without [advance] the dust stands still; the same happens when
+/// [animate] is off.
+///
 /// Kept apart from [MarkdownSelectionController]: that one anchors a selection
 /// over a registry of models, this one holds one bit per document, and the two
 /// change for different reasons.
@@ -34,6 +43,10 @@ class MarkdownSpoilerController extends ChangeNotifier {
 
   /// How long the reveal ripple takes to cover the document's spoilers.
   static const Duration revealDuration = Duration(milliseconds: 300);
+
+  /// How many times a second the dust moves (Android: 30). [advance] may be
+  /// called more often; frames in between are skipped.
+  static const int fillFrameRate = 30;
 
   final Map<Object, Offset?> _revealed = <Object, Offset?>{};
 
@@ -49,6 +62,73 @@ class MarkdownSpoilerController extends ChangeNotifier {
     if (_animate == value) return;
     _animate = value;
     notifyListeners();
+  }
+
+  // --- Dust clock -----------------------------------------------------------
+
+  final ValueNotifier<int> _fillFrames = ValueNotifier<int>(0);
+  final ValueNotifier<bool> _wantsTicks = ValueNotifier<bool>(false);
+  Duration _elapsed = Duration.zero;
+  int _fillSurfaces = 0;
+  bool _disposed = false;
+
+  /// Moves the dust to [elapsed], a time that only grows (a `Ticker`'s
+  /// elapsed, or the shared clock of the host).
+  ///
+  /// The dust moves at [fillFrameRate]: a call that stays within the frame
+  /// already shown changes nothing, so a 60 fps clock may call it every frame.
+  /// With no hidden spoiler mounted nobody listens and it costs one
+  /// comparison.
+  void advance(Duration elapsed) {
+    _elapsed = elapsed;
+    _fillFrames.value = fillFrameAt(elapsed);
+  }
+
+  /// The frame number of [elapsed]: the dust of two times in one frame is the
+  /// same dust.
+  static int fillFrameAt(Duration elapsed) =>
+      elapsed.inMicroseconds * fillFrameRate ~/ Duration.microsecondsPerSecond;
+
+  /// The time of the last [advance].
+  Duration get elapsed => _elapsed;
+
+  /// The dust frame the last [advance] arrived at.
+  int get fillFrame => _fillFrames.value;
+
+  /// Changes with every new dust frame; the hidden spoilers repaint on it.
+  @meta.internal
+  ValueListenable<int> get fillFrames => _fillFrames;
+
+  /// Whether a hidden spoiler is mounted that would move on the next frame.
+  ///
+  /// False when none is, when [animate] is off, and for a spoiler the platform
+  /// keeps still. A host runs its clock only while this is true, and calls
+  /// [advance] from it.
+  ValueListenable<bool> get wantsTicks => _wantsTicks;
+
+  /// A hidden spoiler that moves has been mounted. Pair with
+  /// [removeFillSurface].
+  @meta.internal
+  void addFillSurface() {
+    _fillSurfaces++;
+    _wantsTicks.value = true;
+  }
+
+  /// The counterpart of [addFillSurface].
+  @meta.internal
+  void removeFillSurface() {
+    assert(_fillSurfaces > 0, 'removeFillSurface without addFillSurface.');
+    _fillSurfaces--;
+    // A surface can outlive the controller by a frame at teardown.
+    if (!_disposed) _wantsTicks.value = _fillSurfaces > 0;
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _fillFrames.dispose();
+    _wantsTicks.dispose();
+    super.dispose();
   }
 
   /// Whether the spoilers of document [documentId] are revealed.

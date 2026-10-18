@@ -27,6 +27,7 @@ import 'blocks/spacer.dart';
 import 'blocks/table.dart';
 import 'embed_offset_map.dart';
 import 'inline_embeds.dart';
+import 'spoiler_particle_tile.dart';
 import 'spoiler_phase.dart';
 
 /// A painter for rendering markdown content via blocks and spans.
@@ -40,6 +41,7 @@ class MarkdownPainter {
     double devicePixelRatio = 1.0,
   })  : _markdown = markdown,
         _theme = theme,
+        _devicePixelRatio = devicePixelRatio,
         _isEmpty = markdown.isEmpty,
         _size = Size.zero {
     _embeds = _hostFor(embedResolver, devicePixelRatio);
@@ -69,6 +71,9 @@ class MarkdownPainter {
 
   /// Whether any inline embed is alive in the blocks.
   bool get hasEmbeds => !(_embeds?.isEmpty ?? true);
+
+  /// The pixel ratio embeds and the spoiler dust are rendered at.
+  double _devicePixelRatio;
 
   /// Is the markdown entity empty?
   bool get isEmpty => _isEmpty;
@@ -659,6 +664,7 @@ class MarkdownPainter {
     MarkdownInlineEmbedResolver? embedResolver,
     double devicePixelRatio = 1.0,
   }) {
+    _devicePixelRatio = devicePixelRatio;
     final previousEmbeds = _embeds;
     final embedsChanged = !identical(previousEmbeds?.resolver, embedResolver) ||
         (previousEmbeds != null &&
@@ -666,6 +672,7 @@ class MarkdownPainter {
     if (identical(_markdown, markdown) &&
         identical(_theme, theme) &&
         !embedsChanged) {
+      _dropFillTileIfStale();
       return false;
     }
     if (embedsChanged) _embeds = _hostFor(embedResolver, devicePixelRatio);
@@ -676,6 +683,7 @@ class MarkdownPainter {
     _dropPictures();
     _markdown = markdown;
     _theme = theme;
+    _dropFillTileIfStale();
     _isEmpty = markdown.isEmpty;
     _rebuild(preHarvested: harvested, oldBlocks: oldBlocks);
     // The old host's embeds are in painters that _rebuild just disposed.
@@ -967,24 +975,71 @@ class MarkdownPainter {
     };
   }
 
-  /// Interim fill: a flat dust-coloured patch over each hidden spoiler. The
-  /// particle tile replaces this body; the pass (live, above the pictures,
-  /// outside the ripple circle) stays.
+  /// The dust tile this painter holds a share of, while any spoiler of it is
+  /// hidden. One per `(text colour, pixel ratio)` in the process, so a screen
+  /// of twenty hidden spoilers renders one tile.
+  SpoilerParticleTile? _fillTile;
+
+  /// The dust frame to paint, from the host's clock; null keeps the dust
+  /// still (motion off, or no clock).
+  int? _fillFrame;
+
+  /// Sets the dust frame the next [paint] shows. Never lays out, never
+  /// records a glyph picture; the render object repaints on it.
+  void setSpoilerFillFrame(int? frame) => _fillFrame = frame;
+
+  Color get _fillColor => _theme.textStyle.color ?? const Color(0xFF000000);
+
+  /// The tile held now, if any. Exposed for tests asserting sharing and
+  /// release.
+  @visibleForTesting
+  SpoilerParticleTile? get debugFillTile => _fillTile;
+
+  /// Gives the tile up when the text colour or pixel ratio it was made for is
+  /// no longer the painter's; the next fill takes the right one. A theme
+  /// object that changed without changing colour keeps its tile - the dust
+  /// would otherwise jump on every rebuild of a host that makes its theme in
+  /// `build`.
+  void _dropFillTileIfStale() {
+    final tile = _fillTile;
+    if (tile == null) return;
+    if (tile.color == _fillColor &&
+        tile.devicePixelRatio == _devicePixelRatio) {
+      return;
+    }
+    _releaseFillTile();
+  }
+
+  void _releaseFillTile() {
+    final tile = _fillTile;
+    if (tile == null) return;
+    _fillTile = null;
+    SpoilerParticleTiles.release(tile);
+  }
+
+  /// The live pass over each spoiler that is still hidden: the particle tile,
+  /// clipped to the spoiler's rounded rect. It is drawn above the glyph
+  /// pictures and outside the ripple circle; nothing here records a picture.
   void _paintSpoilerFill(
     Canvas canvas,
     SpoilerPhase phase,
     _SpoilerRipple? ripple,
   ) {
-    if (phase is SpoilerPhase$Revealed || _spoilerBlocks.isEmpty) return;
-    final paint = Paint()
-      ..color = (_theme.textStyle.color ?? const Color(0xFF000000))
-          .withValues(alpha: _kSpoilerFillAlpha);
+    if (phase is SpoilerPhase$Revealed || _spoilerBlocks.isEmpty) {
+      _releaseFillTile();
+      return;
+    }
+    final tile = _fillTile ??=
+        SpoilerParticleTiles.acquire(_fillColor, _devicePixelRatio);
     canvas.save();
     if (ripple != null) canvas.clipPath(ripple.hiddenSpoilers);
+    var index = 0;
     for (final rect in _spoilerRects()) {
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(_kSpoilerRadius)),
-        paint,
+      tile.fill(
+        canvas,
+        SpoilerParticleTile.shapeOf(rect),
+        SpoilerParticleTile.phaseOf(index++),
+        frame: _fillFrame,
       );
     }
     canvas.restore();
@@ -1309,6 +1364,7 @@ class MarkdownPainter {
 
   void dispose() {
     _dropPictures();
+    _releaseFillTile();
     _horizontalPanBySource.clear();
     onPaintersRebuilt = null;
     for (final painter in _blockPainters) {
@@ -1318,12 +1374,6 @@ class MarkdownPainter {
     _embeds?.disposeAll();
   }
 }
-
-/// Opacity of the interim spoiler fill, over the theme's text colour.
-const double _kSpoilerFillAlpha = 0.35;
-
-/// Corner radius of a spoiler patch (Android clips its dust to 3 dp).
-const double _kSpoilerRadius = 3.0;
 
 /// The geometry of one ripple frame, in content-local coordinates.
 ///

@@ -13,6 +13,7 @@ canvas via one `RenderBox` and a list of `BlockPainter`s — **no widget per blo
 |---|---|
 | `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, `PannedContent` (`@meta.internal`: the pan transform a block gives the live embed pass), private `_distanceToRect`. |
 | `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle, revealed})` → `TextSpan` (a `MarkdownParagraphSpan` when the paragraph has a `\|\|spoiler\|\|`); the `TextPainter` extension `MarkdownSpoilerPainter`; private `_buildTapRecognizer` (link taps from `span.extra['url']`). |
+| `spoiler_particle_field.dart` / `spoiler_particle_tile.dart` | `SpoilerParticleField` (the dust simulation) and `SpoilerParticleTile` / `SpoilerParticleTiles` (the live tile image and its per-process registry). |
 | `spoiler_phase.dart` | `SpoilerPhase` (`$Hidden` / `$Revealing` / `$Revealed`) — what the painter draws for the document's spoilers. |
 | `inline_embeds.dart` | `MarkdownEmbedSpan` (the placeholder span of one embed) and `MarkdownEmbedHost` (owns the embeds a painter resolved and forwards their signals), both `@meta.internal`. |
 | `embed_offset_map.dart` | `MarkdownEmbedOffsets`: the map between painter text offsets and rendered text offsets (`@meta.internal`). |
@@ -284,7 +285,29 @@ revealed.
   the length of a ripple. A reveal swaps pictures; it never lays out.
 - **Live passes.** The fill over each hidden spoiler (`spoilerRects`, outside the
   glyph pictures) and the ripple are painted every frame without touching the
-  pictures. The fill here is a flat patch; the particle tile replaces its body.
+  pictures.
+- **Dust.** The fill is Android's particle dust as one **live tile**: a 128 dp
+  `SpoilerParticleField` (0.09 particles / dp², round points of alpha 0.3, 0.6,
+  1.0 and stroke 1.2 / 1.2 / 1.4 dp, 4–10 dp/s, life 1–3 s, respawning
+  uniformly) rendered by `Picture.toImageSync` at the display's pixel ratio.
+  Every hidden spoiler fills its rect, clipped to a 3 dp rounded rect, through
+  an `ImageShader` of that image (`TileMode.repeated`, `FilterQuality.none`,
+  a per-spoiler pattern offset). The cost of the dust is one tile render per
+  dust frame however many spoilers are on screen; the render happens on the
+  first fill of a frame, never on a timer of its own. `SpoilerParticleTiles`
+  keeps one tile per `(text colour, pixel ratio)` per process, counted by the
+  painters that use it: the last release disposes it, so a theme colour change
+  replaces it and a screen with no hidden spoiler holds no image. Where the
+  engine has no `toImageSync` the tile is **static**: the frame-0 dust as a
+  `Picture`, drawn tiled, rendered once.
+- **Dust clock.** The package owns no ticker for the dust.
+  `MarkdownSpoilerController.advance(elapsed)` takes the host's monotonic clock
+  (the root viewport passes the shared playback clock); the dust moves at
+  `fillFrameRate` (30) whatever the clock's rate. `wantsTicks` is true while a
+  hidden (or rippling) spoiler that may move is mounted, so the host runs its
+  clock only then. With no `advance`, `animate == false`,
+  `MediaQuery.disableAnimationsOf` or a muted `TickerMode`, the dust is the
+  tile as first rendered and nothing repaints it.
 - **Ripple.** ~300 ms (`MarkdownSpoilerController.revealDuration`): outside a
   circle grown from the tap point, the hidden picture and the fill; inside it
   (clipped to the spoiler rects) the revealed picture. The radius reaches the
