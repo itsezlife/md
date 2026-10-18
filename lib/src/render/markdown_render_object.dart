@@ -103,6 +103,10 @@ class MarkdownRenderObject extends RenderBox
   /// A pointer that went down on a hidden spoiler and has not come up yet.
   ({int pointer, Offset local})? _spoilerTap;
 
+  /// The controller this surface is counted by as a mover of dust, and so the
+  /// one whose frames it repaints on. Null while it is not one.
+  MarkdownSpoilerController? _fillTicking;
+
   /// Whether [paint] will push a start and/or end [LeaderLayer] this frame.
   ///
   /// Drives [alwaysNeedsCompositing]; keep it in lockstep with the conditions
@@ -129,6 +133,7 @@ class MarkdownRenderObject extends RenderBox
       _ballisticTicker?.stop();
       _finishRipple();
     }
+    _syncFillTicks();
   }
 
   /// Whether this surface currently owns a start and/or end handle leader.
@@ -238,19 +243,68 @@ class MarkdownRenderObject extends RenderBox
     final nextId = bound ? documentId : null;
     if (identical(nextController, _spoilerController) &&
         nextId == _spoilerDocumentId) {
+      // Reduced motion may have changed.
+      _syncFillTicks();
       return;
     }
+    _stopFillTicks();
     _spoilerController?.removeListener(_onSpoilerChange);
     _stopRipple();
     _spoilerController = nextController;
     _spoilerDocumentId = nextId;
     nextController?.addListener(_onSpoilerChange);
     _syncSpoilerPhase(animate: false);
+    _syncFillTicks();
   }
 
   void _onSpoilerChange() {
     if (_disposed) return;
     _syncSpoilerPhase(animate: true);
+    // [MarkdownSpoilerController.animate] may have changed.
+    _syncFillTicks();
+  }
+
+  // --- Spoiler dust ---
+
+  /// Whether the dust over this surface's spoilers should move: a spoiler is
+  /// hidden (or rippling away), motion is allowed, and there is a clock to
+  /// move it with.
+  bool get _fillShouldTick =>
+      !_disposed &&
+      _spoilerMotion &&
+      _painter.hasSpoilers &&
+      _painter.spoilerPhase is! SpoilerPhase$Revealed;
+
+  /// Brings this surface's membership of the controller's dust clock in line
+  /// with [_fillShouldTick]. Cheap and idempotent: called wherever one of its
+  /// inputs may have changed.
+  void _syncFillTicks() {
+    final controller = _spoilerController;
+    if (controller == null || !_fillShouldTick) {
+      _stopFillTicks();
+      return;
+    }
+    if (identical(_fillTicking, controller)) return;
+    _fillTicking = controller;
+    controller
+      ..addFillSurface()
+      ..fillFrames.addListener(_onFillFrame);
+  }
+
+  void _stopFillTicks() {
+    final controller = _fillTicking;
+    if (controller == null) return;
+    _fillTicking = null;
+    controller
+      ..fillFrames.removeListener(_onFillFrame)
+      ..removeFillSurface();
+  }
+
+  /// A new dust frame: repaint, nothing else. The glyph pictures are cached
+  /// and untouched; the painter draws the fill from the shared tile.
+  void _onFillFrame() {
+    if (_disposed || !attached) return;
+    markNeedsPaint();
   }
 
   /// Whether a reveal may move: the host allows it, the platform does not ask
@@ -284,8 +338,9 @@ class MarkdownRenderObject extends RenderBox
   }
 
   void _setSpoilerPhase(SpoilerPhase phase) {
-    if (_painter.setSpoilerPhase(phase) && attached && !_disposed) {
-      markNeedsPaint();
+    if (_painter.setSpoilerPhase(phase)) {
+      _syncFillTicks();
+      if (attached && !_disposed) markNeedsPaint();
     }
   }
 
@@ -628,6 +683,8 @@ class MarkdownRenderObject extends RenderBox
     if (controller != null && id != null) {
       controller.reportAtomicRanges(id, _painter.atomicRanges());
     }
+    // Whether the document has a spoiler is only known once it is laid out.
+    _syncFillTicks();
   }
 
   @override
@@ -781,6 +838,7 @@ class MarkdownRenderObject extends RenderBox
     super.attach(owner);
     _ballisticTicker?.muted = !_tickerModeEnabled || !attached;
     _rippleTicker?.muted = !_tickerModeEnabled || !attached;
+    _syncFillTicks();
     PaintingBinding.instance.systemFonts.addListener(_handleSystemFontsChange);
     _painter.bindHorizontalPanStore(_controller, _documentId);
     final controller = _controller;
@@ -834,6 +892,8 @@ class MarkdownRenderObject extends RenderBox
     // A muted ticker would strand the ripple half-drawn; end it revealed.
     _rippleTicker?.muted = true;
     _finishRipple();
+    // A surface out of the tree moves no dust and holds no listener.
+    _stopFillTicks();
     PaintingBinding.instance.systemFonts
         .removeListener(_handleSystemFontsChange);
     _controller?.detachSurface(this);
@@ -848,6 +908,7 @@ class MarkdownRenderObject extends RenderBox
   @protected
   void dispose() {
     _disposed = true;
+    _stopFillTicks();
     _spoilerController?.removeListener(_onSpoilerChange);
     _spoilerController = null;
     _rippleTicker?.dispose();
@@ -890,6 +951,10 @@ class MarkdownRenderObject extends RenderBox
       _painter.paintHighlight(canvas, rangeOf, _highlightPaint);
     }
 
+    // Null keeps the dust still: motion off, or the surface is muted.
+    _painter.setSpoilerFillFrame(
+      _spoilerMotion ? _spoilerController?.fillFrame : null,
+    );
     _painter.paint(canvas, size);
 
     if (controller != null && id != null) {

@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render/markdown_render_object.dart';
+import 'package:flutter_md/src/render/spoiler_particle_tile.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// Compares against the files next to this test, whichever entrypoint runs
@@ -92,6 +94,49 @@ Future<void> _pumpBody(
   );
 }
 
+const _twoLines =
+    'Hello ||secret words that wrap onto a second line|| and a tail';
+
+/// A hidden spoiler over two lines with the dust standing still (motion off)
+/// and a seeded field, so the picture is the same on every run.
+Future<void> _pumpDust(
+  WidgetTester tester, {
+  required Color ink,
+  required Color paper,
+}) async {
+  tester.view
+    ..physicalSize = const Size(220, 100)
+    ..devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  final spoilers = MarkdownSpoilerController(animate: false);
+  addTearDown(spoilers.dispose);
+  await tester.pumpWidget(
+    MediaQuery(
+      data: const MediaQueryData(),
+      child: Directionality(
+        textDirection: TextDirection.ltr,
+        child: RepaintBoundary(
+          key: const ValueKey('shot'),
+          child: ColoredBox(
+            color: paper,
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: MarkdownWidget(
+                markdown: Markdown.fromString(_twoLines),
+                documentId: 'doc',
+                spoilerController: spoilers,
+                theme: MarkdownThemeData(
+                  textStyle: TextStyle(fontSize: 14, color: ink),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 void main() {
   group('spoiler goldens', () {
     late GoldenFileComparator previous;
@@ -104,6 +149,38 @@ void main() {
     });
 
     tearDownAll(() => goldenFileComparator = previous);
+
+    // The dust of every picture here comes from one seeded field.
+    setUp(() => SpoilerParticleTiles.debugConfigure(random: () => Random(7)));
+    tearDown(SpoilerParticleTiles.debugReset);
+
+    group('static dust tile', () {
+      testWidgets('dark text on light', (tester) async {
+        await _pumpDust(
+          tester,
+          ink: const Color(0xFF0D47A1),
+          paper: Colors.white,
+        );
+
+        await expectLater(
+          find.byKey(const ValueKey('shot')),
+          matchesGoldenFile('goldens/dust_light.png'),
+        );
+      });
+
+      testWidgets('light text on dark', (tester) async {
+        await _pumpDust(
+          tester,
+          ink: const Color(0xFFE3F2FD),
+          paper: const Color(0xFF121212),
+        );
+
+        await expectLater(
+          find.byKey(const ValueKey('shot')),
+          matchesGoldenFile('goldens/dust_dark.png'),
+        );
+      });
+    });
 
     for (final direction in TextDirection.values) {
       final name = direction.name;
