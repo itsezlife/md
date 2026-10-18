@@ -1,4 +1,4 @@
-## Unreleased
+## 0.4.3
 
 Before this change a selection painted a box for every run of the text, each as
 tall as the run: an emoji drawn larger than the text, a text run and an inline
@@ -11,6 +11,8 @@ line, the line's whole height, behind everything it covers (glyphs, emoji runs
 and embeds alike), and an embed is never tinted. Hosts that read the rectangles
 (`MarkdownSelectionController.localSelectionRects`, `MarkdownSelectionSurface`'s
 box queries) get the same rectangles the render object draws.
+The release tag is `v0.4.3`; depend on it by git ref as described under 0.3.0's
+*Fork status*.
 
 ### Selection
 - **CHANGED**: `SelectableBlockPainter.boxesForRange` of the default painters
