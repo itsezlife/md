@@ -1,4 +1,8 @@
-## Unreleased
+## 0.4.4
+
+A quote indented under a list item rendered as a paragraph with a literal `>`.
+The release tag is `v0.4.4`; depend on it by git ref as described under 0.3.0's
+*Fork status*.
 
 ### Parser
 - **FIXED**: a `>` quote that is indented rendered as a paragraph with a
