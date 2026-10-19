@@ -1,3 +1,21 @@
+## Unreleased
+
+### Parser
+- **FIXED**: a `>` quote that is indented rendered as a paragraph with a
+  literal `>` in it. This is what a quote under a list item looks like
+  (`1. Compare:` then `   > **bold** quote`), and a quote indented by one to
+  three spaces. Before, only a line whose first character was `>` opened a
+  quote. After, up to three leading spaces are allowed, and right after a list
+  any indent is, since a quote in a list item sits at the item's content
+  offset. Continuation lines follow the same rule; four spaces away from a list
+  are still text.
+- **CHANGED**: such a quote after a list is `MD$Quote.indent` `2` (a top-level
+  quote stays `1`), so a renderer can set it in to the list's text edge. It is
+  still a sibling block after the list, not nested in the item: `MD$ListItem`
+  holds inline spans only. The stock `BlockPainter$Quote` draws a second bar for
+  `indent: 2`. A host that must not see it can map the quote to `1` in
+  `MarkdownThemeData.builder`.
+
 ## 0.4.3
 
 Before this change a selection painted a box for every run of the text, each as

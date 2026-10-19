@@ -137,9 +137,35 @@ class MarkdownDecoder extends Converter<String, Markdown> {
   /// start of a list item, e.g. `[ ] todo`, `[x] done`, `[X] done`.
   static final RegExp _taskPattern = RegExp(r'^\[([ xX])\](?:[ \t]+(.*))?$');
 
-  /// Strips a single leading `>` (and one optional following space) from a
-  /// blockquote line, matching the historical trim behavior.
-  static String _stripQuoteMarker(String line) => line.substring(1).trim();
+  /// Strips the `>` marker (and the spaces around it) from a blockquote line,
+  /// matching the historical trim behavior. [marker] is the marker's index.
+  static String _stripQuoteMarker(String line, [int marker = 0]) =>
+      line.substring(marker + 1).trim();
+
+  /// Index of the `>` that opens a quote on [line], or -1 when the line is not
+  /// a quote line.
+  ///
+  /// CommonMark allows up to three spaces before the marker. A quote that
+  /// belongs to a list item sits deeper (a list marker plus its padding), so
+  /// right after a list ([afterList]) any indent counts: the quote is rendered
+  /// as a block of its own, since this parser does not nest blocks in items.
+  static int _quoteMarker(String line, {required bool afterList}) {
+    var i = 0;
+    while (i < line.length && line.codeUnitAt(i) == 0x20) {
+      i++;
+    }
+    if (i >= line.length || line.codeUnitAt(i) != 0x3E) return -1;
+    return i <= 3 || afterList ? i : -1;
+  }
+
+  /// Whether the last block that is not spacing is a list.
+  static bool _followsList(Iterable<MD$Block> blocks) {
+    for (final block in blocks.toList().reversed) {
+      if (block is MD$Spacer) continue;
+      return block is MD$List;
+    }
+    return false;
+  }
 
   /// Whether any line opens (or closes) a fenced code block (` ``` ` / `~~~`).
   /// Used to decide when a quote/alert body must be re-parsed as nested blocks
@@ -262,12 +288,20 @@ class MarkdownDecoder extends Converter<String, Markdown> {
             text: text,
             spans: _parseInlineSpans(text, math: math)));
         continue;
-      } else if (c0 == 0x3E /* > */) {
+      } else if (c0 == 0x3E /* > */ ||
+          (c0 == 0x20 &&
+              _quoteMarker(line, afterList: _followsList(blocks)) >= 0)) {
         // Parse quotes and GitHub-style alerts.
-        final quoteLines = <String>[_stripQuoteMarker(line)];
+        final afterList = _followsList(blocks);
+        final quoteLines = <String>[
+          _stripQuoteMarker(line, _quoteMarker(line, afterList: afterList)),
+        ];
         var j = i + 1;
-        for (; j < length && lines[j].startsWith('>'); j++) {
-          quoteLines.add(_stripQuoteMarker(lines[j]));
+        for (var m = 0;
+            j < length &&
+                (m = _quoteMarker(lines[j], afterList: afterList)) >= 0;
+            j++) {
+          quoteLines.add(_stripQuoteMarker(lines[j], m));
         }
         final count = j - i;
 
@@ -307,14 +341,16 @@ class MarkdownDecoder extends Converter<String, Markdown> {
           if (_linesContainFence(quoteLines)) {
             final nested = convert(text).blocks;
             pushBlock(MD$Quote(
-              indent: 1,
+              indent: afterList ? 2 : 1,
               text: text,
               spans: const <MD$Span>[],
               blocks: nested,
             ));
           } else {
             pushBlock(MD$Quote(
-              indent: 1, // Indentation level for quotes
+              // Nesting level: a quote that belongs to a list item is one level
+              // deeper than a top-level one.
+              indent: afterList ? 2 : 1,
               text: text,
               spans: _parseInlineSpans(text, math: math),
             ));
