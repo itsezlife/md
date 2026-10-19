@@ -47,7 +47,7 @@ signature — a breaking change to every override.
 |---|---|---|
 | `MD$Paragraph` | `paragraph` | `text`, `List<MD$Span> spans` |
 | `MD$Heading` | `heading` | `int level` (1–6), `text`, `spans` |
-| `MD$Quote` | `quote` | `int indent` (**always 1** — nested `>>` not modeled yet), `text`, `spans` (leaf) **or** `blocks` (when the body contains a fence / nested structure; then `spans` is empty) |
+| `MD$Quote` | `quote` | `int indent` (`1`, or `2` for a quote that follows a list — one level deeper than a top-level quote; nested `>>` is not modeled yet), `text`, `spans` (leaf) **or** `blocks` (when the body contains a fence / nested structure; then `spans` is empty) |
 | `MD$Alert` | `alert` | `MD$AlertType alert`, `text` (body), `spans` (body only) **or** `blocks` when the body contains a fence |
 | `MD$Code` | `code` | `String? language` (may be `''`), `text` (raw, never span-parsed) |
 | `MD$List` | `list` | `text` (raw slice), `List<MD$ListItem> items` |
@@ -146,6 +146,13 @@ Block-level:
 - **Task lists** `- [ ]` / `- [x]` / `- [X]` (also ordered); empty `[]` is not a task.
 - **Tables** with a delimiter row encoding per-column alignment (`:--`, `:-:`,
   `--:`); malformed/ragged tables fall back to paragraph.
+- **Indented quotes** — a `>` after up to three spaces opens a quote
+  (CommonMark). Right after a list (the last non-spacing block is a
+  `MD$List`) any indent counts, because a quote in a list item sits at the
+  item's content offset; it is emitted as a sibling block after the list with
+  `indent: 2`, not nested in the item (`MD$ListItem` holds inline spans only).
+  Continuation lines follow the same rule. Four or more spaces away from a list
+  stay text.
 - **Alerts** — a blockquote whose first line is `[!NOTE|TIP|IMPORTANT|WARNING|CAUTION]`;
   unknown markers fall back to a plain quote. Alert/quote bodies that contain a
   fenced code line (` ``` ` / `~~~`) are **re-parsed as nested blocks**
@@ -208,7 +215,7 @@ fixing the parser fails the case and the case moves to the table above:
 - List `indent` is a **column width**, capped at 8; 9+ leading spaces end the list.
   Tree assembly is a recursive `traverse` over a flat list with a shared mutable
   offset closure (note the intermediate record misspells the field `intent`).
-- `MD$Quote.indent` is hardcoded to 1; alert bodies are trimmed (`skip(1).join('\n').trim()`)
+- `MD$Quote.indent` is 1, or 2 right after a list (see *Indented quotes*); alert bodies are trimmed (`skip(1).join('\n').trim()`)
   while quote bodies keep raw `join('\n')`. Plain quotes/alerts stay leaf `spans`;
   a body that contains a fence line is re-parsed into `blocks` (spans empty).
 - `MD$Code.language` can be `''` (not null) for a bare fence; `MD$Code.text` is raw.

@@ -4,6 +4,36 @@ import 'package:flutter_test/flutter_test.dart';
 List<MD$Block> _blocks(String input) => markdownDecoder.convert(input).blocks;
 
 void main() => group('Block parsing', () {
+      group('Indented quotes', () {
+        test('up to three spaces before > still open a quote', () {
+          final quote = _blocks('  > quoted').single as MD$Quote;
+          expect(quote.text, 'quoted');
+          expect(quote.indent, 1);
+        });
+
+        test('a quote under a list item is a quote, not paragraph text', () {
+          final blocks = _blocks('1. Compare:\n\n   > **Guaranteed** income');
+          final quote = blocks.last as MD$Quote;
+          expect(blocks.first, isA<MD$List>());
+          expect(quote.text, '**Guaranteed** income');
+          expect(quote.indent, 2,
+              reason: 'one level deeper than a top-level quote');
+          expect(
+              quote.spans,
+              contains(isA<MD$Span>().having(
+                  (s) => s.style.contains(MD$Style.bold), 'bold', true)));
+        });
+
+        test('an indented continuation line joins the quote', () {
+          final quote = _blocks('> a\n  > b').single as MD$Quote;
+          expect(quote.text, 'a\nb');
+        });
+
+        test('four spaces away from a list is not a quote', () {
+          expect(_blocks('text\n\n    > deep').last, isNot(isA<MD$Quote>()));
+        });
+      });
+
       group('Headings', () {
         test('levels 1 through 6', () {
           for (var level = 1; level <= 6; level++) {
