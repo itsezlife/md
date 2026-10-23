@@ -479,6 +479,14 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
         },
       );
 
+  /// Creates a copy of this theme with the given fields replaced.
+  ///
+  /// A `null` argument keeps the current value, as in Flutter's own themes,
+  /// so `copyWith(onLinkTap: null)` does not remove a link handler. To remove
+  /// a callback, pass its `clear*` flag: [clearOnLinkTap], [clearOnMentionTap],
+  /// [clearBlockFilter], [clearSpanFilter], [clearBuilder],
+  /// [clearCursorResolver] or [clearEmojiRuns]. A flag and a new value for the
+  /// same callback are mutually exclusive.
   @override
   MarkdownThemeData copyWith({
     TextDirection? textDirection,
@@ -510,41 +518,61 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     MarkdownCursorResolver? cursorResolver,
     MarkdownEmojiRuns? emojiRuns,
     double? emojiScale,
-  }) =>
-      MarkdownThemeData(
-        textDirection: textDirection ?? this.textDirection,
-        textScaler: textScaler ?? this.textScaler,
-        textStyle: textStyle ?? this.textStyle,
-        h1Style: h1Style ?? this.h1Style,
-        h2Style: h2Style ?? this.h2Style,
-        h3Style: h3Style ?? this.h3Style,
-        h4Style: h4Style ?? this.h4Style,
-        h5Style: h5Style ?? this.h5Style,
-        h6Style: h6Style ?? this.h6Style,
-        quoteStyle: quoteStyle ?? this.quoteStyle,
-        linkColor: linkColor ?? this.linkColor,
-        linkStyle: linkStyle ?? this.linkStyle,
-        mentionColor: mentionColor ?? this.mentionColor,
-        surfaceColor: surfaceColor ?? this.surfaceColor,
-        highlightBackgroundColor:
-            highlightBackgroundColor ?? this.highlightBackgroundColor,
-        monospaceBackgroundColor:
-            monospaceBackgroundColor ?? this.monospaceBackgroundColor,
-        monospaceFontFamily: monospaceFontFamily ?? this.monospaceFontFamily,
-        monospaceFontFamilyFallback:
-            monospaceFontFamilyFallback ?? this.monospaceFontFamilyFallback,
-        dividerColor: dividerColor ?? this.dividerColor,
-        alertColors: alertColors ?? this.alertColors,
-        blockFilter: blockFilter ?? this.blockFilter,
-        spanFilter: spanFilter ?? this.spanFilter,
-        builder: builder ?? this.builder,
-        onLinkTap: onLinkTap ?? this.onLinkTap,
-        onMentionTap: onMentionTap ?? this.onMentionTap,
-        highlighter: highlighter ?? this.highlighter,
-        cursorResolver: cursorResolver ?? this.cursorResolver,
-        emojiRuns: emojiRuns ?? this.emojiRuns,
-        emojiScale: emojiScale ?? this.emojiScale,
-      );
+    bool clearBlockFilter = false,
+    bool clearSpanFilter = false,
+    bool clearBuilder = false,
+    bool clearOnLinkTap = false,
+    bool clearOnMentionTap = false,
+    bool clearCursorResolver = false,
+    bool clearEmojiRuns = false,
+  }) {
+    assert(
+      !(clearBlockFilter && blockFilter != null) &&
+          !(clearSpanFilter && spanFilter != null) &&
+          !(clearBuilder && builder != null) &&
+          !(clearOnLinkTap && onLinkTap != null) &&
+          !(clearOnMentionTap && onMentionTap != null) &&
+          !(clearCursorResolver && cursorResolver != null) &&
+          !(clearEmojiRuns && emojiRuns != null),
+      'Pass either a callback or its clear flag, not both.',
+    );
+    return MarkdownThemeData(
+      textDirection: textDirection ?? this.textDirection,
+      textScaler: textScaler ?? this.textScaler,
+      textStyle: textStyle ?? this.textStyle,
+      h1Style: h1Style ?? this.h1Style,
+      h2Style: h2Style ?? this.h2Style,
+      h3Style: h3Style ?? this.h3Style,
+      h4Style: h4Style ?? this.h4Style,
+      h5Style: h5Style ?? this.h5Style,
+      h6Style: h6Style ?? this.h6Style,
+      quoteStyle: quoteStyle ?? this.quoteStyle,
+      linkColor: linkColor ?? this.linkColor,
+      linkStyle: linkStyle ?? this.linkStyle,
+      mentionColor: mentionColor ?? this.mentionColor,
+      surfaceColor: surfaceColor ?? this.surfaceColor,
+      highlightBackgroundColor:
+          highlightBackgroundColor ?? this.highlightBackgroundColor,
+      monospaceBackgroundColor:
+          monospaceBackgroundColor ?? this.monospaceBackgroundColor,
+      monospaceFontFamily: monospaceFontFamily ?? this.monospaceFontFamily,
+      monospaceFontFamilyFallback:
+          monospaceFontFamilyFallback ?? this.monospaceFontFamilyFallback,
+      dividerColor: dividerColor ?? this.dividerColor,
+      alertColors: alertColors ?? this.alertColors,
+      blockFilter: clearBlockFilter ? null : blockFilter ?? this.blockFilter,
+      spanFilter: clearSpanFilter ? null : spanFilter ?? this.spanFilter,
+      builder: clearBuilder ? null : builder ?? this.builder,
+      onLinkTap: clearOnLinkTap ? null : onLinkTap ?? this.onLinkTap,
+      onMentionTap:
+          clearOnMentionTap ? null : onMentionTap ?? this.onMentionTap,
+      highlighter: highlighter ?? this.highlighter,
+      cursorResolver:
+          clearCursorResolver ? null : cursorResolver ?? this.cursorResolver,
+      emojiRuns: clearEmojiRuns ? null : emojiRuns ?? this.emojiRuns,
+      emojiScale: emojiScale ?? this.emojiScale,
+    );
+  }
 
   @override
   ThemeExtension<MarkdownThemeData> lerp(
