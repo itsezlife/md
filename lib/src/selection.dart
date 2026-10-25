@@ -1,5 +1,6 @@
 import 'dart:ui' show Color, Offset, Rect, TextAffinity, TextRange;
 
+import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart' show LayerLink;
 import 'package:meta/meta.dart' as meta show internal;
@@ -2292,16 +2293,21 @@ class MarkdownSelectionController extends ChangeNotifier
   MarkdownPosition _stepCharacter(MarkdownPosition p, {required bool forward}) {
     final di = _orderIndex(p.documentId);
     if (di < 0) return p;
-    final len = _blockTextAt(di, p.blockIndex).length;
+    final text = _blockTextAt(di, p.blockIndex);
+    final len = text.length;
     if (forward) {
-      if (p.offset < len) return p.copyWith(offset: p.offset + 1);
+      if (p.offset < len) {
+        return p.copyWith(offset: _graphemeStep(text, p.offset, forward: true));
+      }
       final adj = _adjacentBlock(di, p.blockIndex, forward: true);
       return adj == null
           ? p
           : MarkdownPosition(
               documentId: _docs[adj.$1].id, blockIndex: adj.$2, offset: 0);
     }
-    if (p.offset > 0) return p.copyWith(offset: p.offset - 1);
+    if (p.offset > 0) {
+      return p.copyWith(offset: _graphemeStep(text, p.offset, forward: false));
+    }
     final adj = _adjacentBlock(di, p.blockIndex, forward: false);
     return adj == null
         ? p
@@ -2309,6 +2315,20 @@ class MarkdownSelectionController extends ChangeNotifier
             documentId: _docs[adj.$1].id,
             blockIndex: adj.$2,
             offset: _blockTextAt(adj.$1, adj.$2).length);
+  }
+
+  // The grapheme boundary after [offset] (forward) or before it, so a step
+  // never stops inside an emoji, a surrogate pair or a combining sequence.
+  static int _graphemeStep(String text, int offset, {required bool forward}) {
+    var boundary = 0;
+    for (final character in text.characters) {
+      final next = boundary + character.length;
+      if (forward ? next > offset : next >= offset) {
+        return forward ? next : boundary;
+      }
+      boundary = next;
+    }
+    return boundary;
   }
 
   // Limitation (v1): stepping indexes the block's rendered text by UTF-16 code
