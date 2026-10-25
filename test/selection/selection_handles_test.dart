@@ -65,6 +65,54 @@ void main() {
       expect('Hello selectable world', startsWith(text));
     });
 
+    testWidgets(
+        'an edge dropped on the fixed one steps a whole emoji, not into it',
+        (tester) async {
+      // An emoji is two UTF-16 code units. The start edge lands on the end
+      // edge, and the step away from it must not split the surrogate pair.
+      final md = Markdown.fromString('ab\u{1F600}');
+      final controller = MarkdownSelectionController()
+        ..setDocuments(
+            <MarkdownDocumentRef>[MarkdownDocumentRef(id: 'd', model: md)]);
+
+      await tester.pumpWidget(_wrap(
+        controller,
+        const Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(width: 400, child: _Doc('d')),
+        ),
+      ));
+      await tester.pumpAndSettle();
+
+      controller.selection = const MarkdownSelection(
+        base: MarkdownPosition(documentId: 'd', blockIndex: 0, offset: 2),
+        extent: MarkdownPosition(documentId: 'd', blockIndex: 0, offset: 4),
+      );
+      final tr = tester.getTopRight(find.byType(MarkdownWidget));
+      controller.moveSelectionEdgeToGlobal(tr + const Offset(-2, 8),
+          isStart: true);
+      await tester.pump();
+
+      expect(controller.selection!.base.offset, 2);
+      expect(controller.getText(), '\u{1F600}');
+    });
+
+    test('a character step crosses a whole emoji', () {
+      final controller = MarkdownSelectionController()
+        ..setDocuments(<MarkdownDocumentRef>[
+          MarkdownDocumentRef(
+              id: 'd', model: Markdown.fromString('a\u{1F44D}\u{1F3FD}b')),
+        ])
+        ..selection = const MarkdownSelection.collapsed(
+            MarkdownPosition(documentId: 'd', blockIndex: 0, offset: 1));
+
+      // The thumbs up and its skin tone are one character of four code units.
+      controller.extendSelectionByCharacter(forward: true);
+      expect(controller.selection!.extent.offset, 5);
+      controller.extendSelectionByCharacter(forward: false);
+      expect(controller.selection!.extent.offset, 1);
+    });
+
     // Ordered (start, end) rendered-text offsets of a single-block selection.
     (int, int) endpoints(MarkdownSelectionController c) {
       final sel = c.selection!;

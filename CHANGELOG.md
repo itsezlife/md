@@ -1,3 +1,21 @@
+## Unreleased
+
+### Theme
+- **ADDED**: `MarkdownThemeData.copyWith` can remove a callback. A `null`
+  argument keeps the current value, so `copyWith(onLinkTap: null)` left the
+  link handler in place and a host had to rebuild the theme field by field.
+  Pass `clearOnLinkTap: true` instead; `clearOnMentionTap`, `clearBlockFilter`,
+  `clearSpanFilter`, `clearBuilder`, `clearCursorResolver` and `clearEmojiRuns`
+  do the same for the other callbacks. A flag and a new value for the same
+  callback assert.
+
+### Selection
+- **FIXED**: a character step (Shift+Arrow, and the nudge that keeps a
+  dragged handle off the other one) moved one UTF-16 code unit, so it could
+  stop inside an emoji: the selection then held half a surrogate pair, and a
+  surface that maps offsets to whole items could not place the handle. It
+  now steps one grapheme. Adds a dependency on `characters`.
+
 ## 0.4.4
 
 A quote indented under a list item rendered as a paragraph with a literal `>`.

@@ -141,6 +141,89 @@ void main() => group('MarkdownThemeData', () {
           expect(copy.linkColor, Colors.green);
           expect(copy.linkStyle?.fontStyle, FontStyle.italic);
         });
+
+        test('clearOnLinkTap removes the link handler, keeps the rest', () {
+          void onMention(String scheme, String? id, String name) {}
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            linkColor: Colors.blue,
+            monospaceFontFamily: 'Fira Code',
+            emojiScale: 1.2,
+            onLinkTap: (_, __) {},
+            onMentionTap: onMention,
+          );
+          final copy = theme.copyWith(clearOnLinkTap: true);
+          expect(copy.onLinkTap, isNull);
+          expect(copy.onMentionTap, same(onMention));
+          expect(copy.linkColor, Colors.blue);
+          expect(copy.monospaceFontFamily, 'Fira Code');
+          expect(copy.emojiScale, 1.2);
+          expect(copy.textStyle.fontSize, 14);
+        });
+
+        test('each clear flag removes only its own callback', () {
+          bool blockFilter(MD$Block block) => true;
+          bool spanFilter(MD$Span span) => true;
+          BlockPainter? builder(MD$Block b, MarkdownThemeData t) => null;
+          void onLink(String title, String url) {}
+          void onMention(String scheme, String? id, String name) {}
+          MouseCursor? cursor(Offset o, int? i, MD$Block? b) => null;
+          Iterable<TextRange> emoji(String text) => const <TextRange>[];
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            blockFilter: blockFilter,
+            spanFilter: spanFilter,
+            builder: builder,
+            onLinkTap: onLink,
+            onMentionTap: onMention,
+            cursorResolver: cursor,
+            emojiRuns: emoji,
+          );
+          List<Object?> callbacks(MarkdownThemeData t) => <Object?>[
+                t.blockFilter,
+                t.spanFilter,
+                t.builder,
+                t.onLinkTap,
+                t.onMentionTap,
+                t.cursorResolver,
+                t.emojiRuns,
+              ];
+          final all = <Object?>[
+            blockFilter,
+            spanFilter,
+            builder,
+            onLink,
+            onMention,
+            cursor,
+            emoji,
+          ];
+          final copies = <MarkdownThemeData>[
+            theme.copyWith(clearBlockFilter: true),
+            theme.copyWith(clearSpanFilter: true),
+            theme.copyWith(clearBuilder: true),
+            theme.copyWith(clearOnLinkTap: true),
+            theme.copyWith(clearOnMentionTap: true),
+            theme.copyWith(clearCursorResolver: true),
+            theme.copyWith(clearEmojiRuns: true),
+          ];
+          for (var i = 0; i < copies.length; i++) {
+            expect(
+              callbacks(copies[i]),
+              <Object?>[...all]..[i] = null,
+              reason: 'clear flag #$i',
+            );
+          }
+        });
+
+        test('copyWith(onLinkTap: null) still keeps the handler', () {
+          void onLink(String title, String url) {}
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            onLinkTap: onLink,
+          );
+          // ignore: avoid_redundant_argument_values
+          expect(theme.copyWith(onLinkTap: null).onLinkTap, same(onLink));
+        });
       });
 
       group('lerp', () {
