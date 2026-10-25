@@ -1,4 +1,8 @@
-## Unreleased
+## 0.4.5
+
+A theme can drop a callback through `copyWith`, and a selection edge never
+stops inside an emoji. The release tag is `v0.4.5`; depend on it by git ref as
+described under 0.3.0's *Fork status*.
 
 ### Theme
 - **ADDED**: `MarkdownThemeData.copyWith` can remove a callback. A `null`
