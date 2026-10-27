@@ -221,7 +221,7 @@ class BlockPainter$List
 
       final contentOffset =
           bulletOffset + Offset(metrics.bulletPainter.width, 0);
-      metrics.contentPainter.paint(canvas, contentOffset);
+      metrics.contentPainter.paintWithPills(canvas, contentOffset);
     }
   }
 

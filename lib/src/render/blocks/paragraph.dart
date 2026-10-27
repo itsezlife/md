@@ -91,7 +91,7 @@ class BlockPainter$Paragraph
   void paint(Canvas canvas, Size size, double offset) {
     // If the width is less than required do not paint anything.
     if (size.width < _size.width) return;
-    painter.paint(
+    painter.paintWithPills(
       canvas,
       Offset(0, offset),
     );

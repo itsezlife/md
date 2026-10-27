@@ -1246,11 +1246,13 @@ class MarkdownPainter {
         if (boxes == null) continue;
         final shift = origin + Offset(0, top);
         for (final entry in offsets.entries) {
-          final embed = entry.span.embed;
+          final span = entry.span;
+          if (span == null) continue;
+          final embed = span.embed;
           if (!embed.visible || entry.placeholderIndex >= boxes.length) {
             continue;
           }
-          final rect = entry.span
+          final rect = span
               .paintRectFor(boxes[entry.placeholderIndex].toRect())
               .shift(shift);
           // A spoiler hides its embeds the way it hides glyphs (0 hidden, the
@@ -1278,7 +1280,7 @@ class MarkdownPainter {
     MarkdownEmbedEntry entry,
     double opacity,
   ) {
-    final color = entry.span.style?.color ?? painter.text?.style?.color;
+    final color = entry.span?.style?.color ?? painter.text?.style?.color;
     final cached = _paintContext;
     if (cached != null && cached.tint == color && cached.opacity == opacity) {
       return cached;
@@ -1299,7 +1301,8 @@ class MarkdownPainter {
       final visible = !(overflow && _blockOffsets[i] > size.height);
       for (final (painter, _, _) in _textFragments(_blockPainters[i])) {
         for (final entry in MarkdownEmbedOffsets.of(painter).entries) {
-          final embed = entry.span.embed;
+          final embed = entry.span?.embed;
+          if (embed == null) continue;
           if (embed.visible != visible) embed.visible = visible;
         }
       }

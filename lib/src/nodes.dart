@@ -58,6 +58,17 @@ extension type const MD$Style(int value) implements int {
   /// through `onLinkTap`.
   static const MD$Style mention = MD$Style(1 << 9);
 
+  /// Vacancy pill: a briefcase icon, the title and a tinted rounded
+  /// background, set inline. Built by a host with [MD$Span.vacancy]; there is
+  /// no markdown syntax for it.
+  ///
+  /// Exclusive with [link] and [mention]. The pill is text: selection and copy
+  /// see the title only (the icon is not text), and a tap reports the pill's
+  /// target through `MarkdownThemeData.onVacancyTap`, never `onLinkTap` or
+  /// `onMentionTap`. The pill is as tall as its line; a host that needs a
+  /// 48 dp hit target pads the block (the pill itself stays a text run).
+  static const MD$Style vacancy = MD$Style(1 << 10);
+
   // --- Can be expanded up to 1 << 31 --- //
 
   /// A list of all styles available in the MD$Style enum.
@@ -74,6 +85,7 @@ extension type const MD$Style(int value) implements int {
     highlight,
     spoiler,
     mention,
+    vacancy,
   ];
 
   /// Check if the style contains a specific flag.
@@ -113,6 +125,7 @@ extension type const MD$Style(int value) implements int {
           if (contains(MD$Style.highlight)) 'highlight',
           if (contains(MD$Style.spoiler)) 'spoiler',
           if (contains(MD$Style.mention)) 'mention',
+          if (contains(MD$Style.vacancy)) 'vacancy',
         };
 
   /// Toggle a style flag in the current style.
@@ -135,6 +148,29 @@ final class MD$Span {
     this.style = MD$Style.none,
     this.extra,
   });
+
+  /// A vacancy pill ([MD$Style.vacancy]) showing [title] and carrying the host
+  /// [target] (for example `vref:V1`). A [muted] pill stands for a reference
+  /// that is not resolved yet.
+  ///
+  /// `extra` holds `type: 'vacancy'`, `target` and `muted`.
+  factory MD$Span.vacancy({
+    required int start,
+    required String title,
+    required String target,
+    bool muted = false,
+  }) =>
+      MD$Span(
+        start: start,
+        end: start + title.length,
+        text: title,
+        style: MD$Style.vacancy,
+        extra: <String, Object?>{
+          'type': 'vacancy',
+          'target': target,
+          'muted': muted,
+        },
+      );
 
   /// The start index of the inline text in the parent block.
   final int start;

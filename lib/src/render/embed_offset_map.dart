@@ -2,6 +2,7 @@ import 'package:flutter/painting.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
 import 'inline_embeds.dart';
+import 'vacancy_pill.dart';
 
 /// Where one embed sits in a paragraph, in both offset spaces.
 @meta.internal
@@ -12,10 +13,12 @@ final class MarkdownEmbedEntry {
     required this.painterStart,
     required this.renderedStart,
     required this.alt,
+    this.painterLength = 1,
   });
 
-  /// The placeholder span.
-  final MarkdownEmbedSpan span;
+  /// The placeholder span; null for a vacancy pill's icon glyph, which is a
+  /// code unit of the painter's text that the rendered text does not have.
+  final MarkdownEmbedSpan? span;
 
   /// Index of the placeholder among the paragraph's placeholders, which is
   /// its index in `TextPainter.inlinePlaceholderBoxes`.
@@ -23,6 +26,13 @@ final class MarkdownEmbedEntry {
 
   /// Offset of the placeholder's U+FFFC in the painter's text.
   final int painterStart;
+
+  /// How many code units of the painter's text the entry takes: one for a
+  /// placeholder, the glyph's length for a pill icon.
+  final int painterLength;
+
+  /// Rendered minus painter length of the entry.
+  int get shift => alt.length - painterLength;
 
   /// Offset where the alt text starts in the rendered text.
   final int renderedStart;
@@ -76,6 +86,18 @@ final class MarkdownEmbedOffsets {
     var shift = 0; // rendered minus painter offset, before the next embed.
     void walk(InlineSpan span) {
       switch (span) {
+        case MarkdownPillGlyphSpan():
+          // One code unit in the painter, none in the rendered text.
+          entries.add(MarkdownEmbedEntry._(
+            span: null,
+            placeholderIndex: -1,
+            painterStart: painterOffset,
+            renderedStart: painterOffset + shift,
+            alt: '',
+            painterLength: span.text!.length,
+          ));
+          shift -= span.text!.length;
+          painterOffset += span.text!.length;
         case TextSpan(:final text, :final children):
           painterOffset += text?.length ?? 0;
           if (children != null) children.forEach(walk);
@@ -134,7 +156,7 @@ final class MarkdownEmbedOffsets {
       out
         ..write(painterText.substring(from, entry.painterStart))
         ..write(entry.alt);
-      from = entry.painterStart + 1;
+      from = entry.painterStart + entry.painterLength;
     }
     return (out..write(painterText.substring(from))).toString();
   }
@@ -143,7 +165,7 @@ final class MarkdownEmbedOffsets {
   int renderedLength(int painterLength) {
     var length = painterLength;
     for (final entry in entries) {
-      length += entry.alt.length - 1;
+      length += entry.shift;
     }
     return length;
   }
@@ -153,7 +175,7 @@ final class MarkdownEmbedOffsets {
     var shift = 0;
     for (final entry in entries) {
       if (entry.painterStart >= painterOffset) break;
-      shift += entry.alt.length - 1;
+      shift += entry.shift;
     }
     return painterOffset + shift;
   }
@@ -169,7 +191,7 @@ final class MarkdownEmbedOffsets {
       if (renderedOffset < entry.renderedEnd) {
         return end ? entry.painterStart + 1 : entry.painterStart;
       }
-      shift += entry.alt.length - 1;
+      shift += entry.shift;
     }
     return renderedOffset - shift;
   }
@@ -184,9 +206,10 @@ final class MarkdownEmbedOffsets {
     final boxes = painter.inlinePlaceholderBoxes;
     if (boxes == null) return null;
     for (final entry in entries) {
-      if (entry.placeholderIndex >= boxes.length) continue;
+      final span = entry.span;
+      if (span == null || entry.placeholderIndex >= boxes.length) continue;
       final box = boxes[entry.placeholderIndex].toRect();
-      if (box.contains(local) || entry.span.paintRectFor(box).contains(local)) {
+      if (box.contains(local) || span.paintRectFor(box).contains(local)) {
         return entry;
       }
     }
