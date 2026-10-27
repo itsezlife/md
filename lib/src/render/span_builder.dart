@@ -11,6 +11,9 @@ import '../inline_embed.dart';
 import '../nodes.dart';
 import '../theme.dart';
 import 'inline_embeds.dart';
+import 'vacancy_pill.dart';
+
+export 'vacancy_pill.dart' show MarkdownPillPainter;
 
 /// Builds a tap recognizer for the given markdown span.
 TapGestureRecognizer? _buildTapRecognizer(
@@ -53,7 +56,8 @@ TapGestureRecognizer? _buildMentionRecognizer(
 bool markdownSpansPaintOpaqueBackground(Iterable<MD$Span> spans) {
   for (final span in spans) {
     if (span.style.contains(MD$Style.monospace) ||
-        span.style.contains(MD$Style.highlight)) {
+        span.style.contains(MD$Style.highlight) ||
+        span.style.contains(MD$Style.vacancy)) {
       return true;
     }
   }
@@ -117,6 +121,9 @@ TextSpan paragraphFromMarkdownSpans({
         }
       }
     }
+    if (span.style.contains(MD$Style.vacancy)) {
+      return buildVacancyPill(span, spanStyle, theme);
+    }
     final recognizer = switch (span.style) {
       final s when s.contains(MD$Style.link) =>
         _buildTapRecognizer(span, theme.onLinkTap),
@@ -172,7 +179,13 @@ TextSpan paragraphFromMarkdownSpans({
     final child = mapper(span);
     // Offsets are the painter's own: an embed placeholder is one code unit
     // however long its alt text is (the offset map bridges that for selection).
-    final end = offset + (child is TextSpan ? span.text.length : 1);
+    // A pill's icon is one more code unit of the painter's text.
+    final end = offset +
+        (child is MarkdownPillSpan
+            ? span.text.length + child.glyphLength
+            : child is TextSpan
+                ? span.text.length
+                : 1);
     if (span.style.contains(MD$Style.spoiler)) {
       spoilerChildren.add(children.length);
       // One spoiler is usually several spans (`||a **b** c||`); a fill covers

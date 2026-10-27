@@ -98,6 +98,10 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.linkColor = Colors.indigo,
     this.linkStyle,
     this.mentionColor,
+    this.vacancyPillColor,
+    this.vacancyPillBackground,
+    this.vacancyPillMutedColor,
+    this.vacancyPillMutedBackground,
     this.surfaceColor = const Color.fromARGB(255, 235, 235, 235),
     this.highlightBackgroundColor = const Color(0x40FF5722),
     this.monospaceBackgroundColor = const Color(0x409E9E9E),
@@ -110,6 +114,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.builder,
     this.onLinkTap,
     this.onMentionTap,
+    this.onVacancyTap,
     this.highlighter,
     this.cursorResolver,
     this.emojiRuns,
@@ -138,6 +143,10 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     Color? linkColor,
     TextStyle? linkStyle,
     Color? mentionColor,
+    Color? vacancyPillColor,
+    Color? vacancyPillBackground,
+    Color? vacancyPillMutedColor,
+    Color? vacancyPillMutedBackground,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -150,6 +159,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
     void Function(String title, String url)? onLinkTap,
     void Function(String scheme, String? id, String name)? onMentionTap,
+    void Function(String target, String title)? onVacancyTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
     MarkdownEmojiRuns? emojiRuns,
@@ -174,6 +184,10 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       linkColor: linkColor ?? theme.colorScheme.primary,
       linkStyle: linkStyle,
       mentionColor: mentionColor,
+      vacancyPillColor: vacancyPillColor,
+      vacancyPillBackground: vacancyPillBackground,
+      vacancyPillMutedColor: vacancyPillMutedColor,
+      vacancyPillMutedBackground: vacancyPillMutedBackground,
       surfaceColor: surfaceColor ?? theme.colorScheme.surfaceContainerHigh,
       highlightBackgroundColor:
           highlightBackgroundColor ?? theme.colorScheme.errorContainer,
@@ -192,6 +206,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       builder: builder,
       onLinkTap: onLinkTap,
       onMentionTap: onMentionTap,
+      onVacancyTap: onVacancyTap,
       highlighter: highlighter,
       cursorResolver: cursorResolver,
       emojiRuns: emojiRuns,
@@ -246,6 +261,22 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// coloured text: no underline and no bold, whatever [linkStyle] adds to
   /// links.
   final Color? mentionColor;
+
+  /// The colour of a vacancy pill's icon and title ([MD$Style.vacancy]).
+  /// When `null`, the pill follows [linkColor].
+  final Color? vacancyPillColor;
+
+  /// The rounded fill behind a vacancy pill. When `null`, the pill colour at
+  /// 14% opacity.
+  final Color? vacancyPillBackground;
+
+  /// The icon and title colour of a muted pill (a vacancy reference that is
+  /// not resolved yet). When `null`, the text colour at 55% opacity.
+  final Color? vacancyPillMutedColor;
+
+  /// The fill behind a muted pill. When `null`, the muted colour at 10%
+  /// opacity.
+  final Color? vacancyPillMutedBackground;
 
   /// The color to use for the background of the quote, block, table and etc.
   final Color? surfaceColor;
@@ -349,6 +380,11 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// of a `mention:` span and `null` for the other two. [name] is the span's
   /// label for `mention:`, and the username or tag for the other two.
   final void Function(String scheme, String? id, String name)? onMentionTap;
+
+  /// A callback that is called when a vacancy pill ([MD$Style.vacancy]) is
+  /// tapped. [target] is the pill's host target (for example `vref:V1`) and
+  /// [title] the text it shows. Neither [onLinkTap] nor [onMentionTap] fires.
+  final void Function(String target, String title)? onVacancyTap;
 
   /// An optional syntax highlighter for fenced code blocks. When `null`, code
   /// is painted as plain monospace text.
@@ -459,6 +495,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
                 : null,
             color: switch (style) {
               var s when s.contains(MD$Style.link) => linkColor,
+              var s when s.contains(MD$Style.vacancy) =>
+                vacancyPillColor ?? linkColor,
               var s when s.contains(MD$Style.mention) =>
                 mentionColor ?? linkColor,
               _ => null,
@@ -484,6 +522,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// A `null` argument keeps the current value, as in Flutter's own themes,
   /// so `copyWith(onLinkTap: null)` does not remove a link handler. To remove
   /// a callback, pass its `clear*` flag: [clearOnLinkTap], [clearOnMentionTap],
+  /// [clearOnVacancyTap],
   /// [clearBlockFilter], [clearSpanFilter], [clearBuilder],
   /// [clearCursorResolver] or [clearEmojiRuns]. A flag and a new value for the
   /// same callback are mutually exclusive.
@@ -502,6 +541,10 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     Color? linkColor,
     TextStyle? linkStyle,
     Color? mentionColor,
+    Color? vacancyPillColor,
+    Color? vacancyPillBackground,
+    Color? vacancyPillMutedColor,
+    Color? vacancyPillMutedBackground,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -514,6 +557,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
     void Function(String title, String url)? onLinkTap,
     void Function(String scheme, String? id, String name)? onMentionTap,
+    void Function(String target, String title)? onVacancyTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
     MarkdownEmojiRuns? emojiRuns,
@@ -523,6 +567,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     bool clearBuilder = false,
     bool clearOnLinkTap = false,
     bool clearOnMentionTap = false,
+    bool clearOnVacancyTap = false,
     bool clearCursorResolver = false,
     bool clearEmojiRuns = false,
   }) {
@@ -532,6 +577,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
           !(clearBuilder && builder != null) &&
           !(clearOnLinkTap && onLinkTap != null) &&
           !(clearOnMentionTap && onMentionTap != null) &&
+          !(clearOnVacancyTap && onVacancyTap != null) &&
           !(clearCursorResolver && cursorResolver != null) &&
           !(clearEmojiRuns && emojiRuns != null),
       'Pass either a callback or its clear flag, not both.',
@@ -550,6 +596,13 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       linkColor: linkColor ?? this.linkColor,
       linkStyle: linkStyle ?? this.linkStyle,
       mentionColor: mentionColor ?? this.mentionColor,
+      vacancyPillColor: vacancyPillColor ?? this.vacancyPillColor,
+      vacancyPillBackground:
+          vacancyPillBackground ?? this.vacancyPillBackground,
+      vacancyPillMutedColor:
+          vacancyPillMutedColor ?? this.vacancyPillMutedColor,
+      vacancyPillMutedBackground:
+          vacancyPillMutedBackground ?? this.vacancyPillMutedBackground,
       surfaceColor: surfaceColor ?? this.surfaceColor,
       highlightBackgroundColor:
           highlightBackgroundColor ?? this.highlightBackgroundColor,
@@ -566,6 +619,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       onLinkTap: clearOnLinkTap ? null : onLinkTap ?? this.onLinkTap,
       onMentionTap:
           clearOnMentionTap ? null : onMentionTap ?? this.onMentionTap,
+      onVacancyTap:
+          clearOnVacancyTap ? null : onVacancyTap ?? this.onVacancyTap,
       highlighter: highlighter ?? this.highlighter,
       cursorResolver:
           clearCursorResolver ? null : cursorResolver ?? this.cursorResolver,
@@ -597,6 +652,14 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       linkColor: Color.lerp(linkColor, other?.linkColor, t),
       linkStyle: TextStyle.lerp(linkStyle, other?.linkStyle, t),
       mentionColor: Color.lerp(mentionColor, other?.mentionColor, t),
+      vacancyPillColor:
+          Color.lerp(vacancyPillColor, other?.vacancyPillColor, t),
+      vacancyPillBackground:
+          Color.lerp(vacancyPillBackground, other?.vacancyPillBackground, t),
+      vacancyPillMutedColor:
+          Color.lerp(vacancyPillMutedColor, other?.vacancyPillMutedColor, t),
+      vacancyPillMutedBackground: Color.lerp(
+          vacancyPillMutedBackground, other?.vacancyPillMutedBackground, t),
       surfaceColor: Color.lerp(surfaceColor, other?.surfaceColor, t),
       highlightBackgroundColor: Color.lerp(
           highlightBackgroundColor, other?.highlightBackgroundColor, t),
@@ -616,6 +679,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       builder: t < 0.5 ? builder : other?.builder,
       onLinkTap: t < 0.5 ? onLinkTap : other?.onLinkTap,
       onMentionTap: t < 0.5 ? onMentionTap : other?.onMentionTap,
+      onVacancyTap: t < 0.5 ? onVacancyTap : other?.onVacancyTap,
       highlighter: t < 0.5 ? highlighter : other?.highlighter,
       cursorResolver: t < 0.5 ? cursorResolver : other?.cursorResolver,
       emojiRuns: t < 0.5 ? emojiRuns : other?.emojiRuns,

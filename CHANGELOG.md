@@ -1,3 +1,25 @@
+## 0.5.0
+
+A vacancy pill: an inline span a host builds, with a briefcase icon, the title
+and a tinted rounded fill. The release tag is `v0.5.0`; depend on it by git ref
+as described under 0.3.0's *Fork status*.
+
+### Spans
+- **ADDED**: `MD$Style.vacancy` and `MD$Span.vacancy(start:, title:, target:,
+  muted:)`. The pill is built from a span, not parsed from markdown, and is
+  exclusive with `link` and `mention`. It is text: it wraps, selects and
+  copies as its title (the icon is not text, so a plain copy is the title).
+  Colours come from `MarkdownThemeData.vacancyPillColor`,
+  `vacancyPillBackground` and the muted pair `vacancyPillMutedColor` /
+  `vacancyPillMutedBackground` (a muted pill stands for a reference that is
+  not resolved yet). A tap calls `MarkdownThemeData.onVacancyTap(target,
+  title)`, never `onLinkTap` or `onMentionTap`; `copyWith` clears it with
+  `clearOnVacancyTap`. A pill is as tall as its line: a host that needs a 48 dp
+  hit target pads the block.
+- **CHANGED**: the selection tint is drawn above the glyph picture for text
+  with a pill, as for highlight and code fills. The offset map treats the
+  pill's icon as painter text with no rendered text.
+
 ## 0.4.5
 
 A theme can drop a callback through `copyWith`, and a selection edge never

@@ -54,7 +54,7 @@ Rect _layoutBox(BlockPainter$Paragraph block, int index) {
 /// The square the [index]th embed is drawn into.
 Rect _paintRect(BlockPainter$Paragraph block, int index) {
   final entry = MarkdownEmbedOffsets.of(block.painter).entries[index];
-  return entry.span.paintRectFor(_layoutBox(block, index));
+  return entry.span!.paintRectFor(_layoutBox(block, index));
 }
 
 /// Hosts a [MarkdownRenderObject] with an embed resolver, which the public
