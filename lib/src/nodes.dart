@@ -58,16 +58,17 @@ extension type const MD$Style(int value) implements int {
   /// through `onLinkTap`.
   static const MD$Style mention = MD$Style(1 << 9);
 
-  /// Vacancy pill: a briefcase icon, the title and a tinted rounded
-  /// background, set inline. Built by a host with [MD$Span.vacancy]; there is
+  /// Inline chip: a run of text with an optional leading glyph on a tinted,
+  /// rounded fill, set inline. Built by a host with [MD$Span.chip]; there is
   /// no markdown syntax for it.
   ///
-  /// Exclusive with [link] and [mention]. The pill is text: selection and copy
-  /// see the title only (the icon is not text), and a tap reports the pill's
-  /// target through `MarkdownThemeData.onVacancyTap`, never `onLinkTap` or
-  /// `onMentionTap`. The pill is as tall as its line; a host that needs a
-  /// 48 dp hit target pads the block (the pill itself stays a text run).
-  static const MD$Style vacancy = MD$Style(1 << 10);
+  /// Exclusive with [link] and [mention]. The chip is text: selection and copy
+  /// see the label only (the glyph and the padding are not text), and a tap
+  /// reports the chip's target through `MarkdownThemeData.onChipTap`, never
+  /// `onLinkTap` or `onMentionTap`. The chip is as tall as its line; a host
+  /// that needs a 48 dp hit target pads the block (the chip itself stays a
+  /// text run). Its look comes from `MarkdownThemeData.chipStyle`.
+  static const MD$Style chip = MD$Style(1 << 10);
 
   // --- Can be expanded up to 1 << 31 --- //
 
@@ -85,7 +86,7 @@ extension type const MD$Style(int value) implements int {
     highlight,
     spoiler,
     mention,
-    vacancy,
+    chip,
   ];
 
   /// Check if the style contains a specific flag.
@@ -125,7 +126,7 @@ extension type const MD$Style(int value) implements int {
           if (contains(MD$Style.highlight)) 'highlight',
           if (contains(MD$Style.spoiler)) 'spoiler',
           if (contains(MD$Style.mention)) 'mention',
-          if (contains(MD$Style.vacancy)) 'vacancy',
+          if (contains(MD$Style.chip)) 'chip',
         };
 
   /// Toggle a style flag in the current style.
@@ -149,24 +150,24 @@ final class MD$Span {
     this.extra,
   });
 
-  /// A vacancy pill ([MD$Style.vacancy]) showing [title] and carrying the host
-  /// [target] (for example `vref:V1`). A [muted] pill stands for a reference
-  /// that is not resolved yet.
+  /// An inline chip ([MD$Style.chip]) showing [text] and carrying the host
+  /// [target] (for example `chip:1`). A [muted] chip uses the muted colours of
+  /// the chip style, for something that is not active or resolved yet.
   ///
-  /// `extra` holds `type: 'vacancy'`, `target` and `muted`.
-  factory MD$Span.vacancy({
+  /// `extra` holds `type: 'chip'`, `target` and `muted`.
+  factory MD$Span.chip({
     required int start,
-    required String title,
+    required String text,
     required String target,
     bool muted = false,
   }) =>
       MD$Span(
         start: start,
-        end: start + title.length,
-        text: title,
-        style: MD$Style.vacancy,
+        end: start + text.length,
+        text: text,
+        style: MD$Style.chip,
         extra: <String, Object?>{
-          'type': 'vacancy',
+          'type': 'chip',
           'target': target,
           'muted': muted,
         },

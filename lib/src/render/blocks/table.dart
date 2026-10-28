@@ -572,7 +572,7 @@ class BlockPainter$Table
         final verticalPadding = (rowHeight - painter.height) / 2;
         final horizontalPadding = _cellHorizontalPadding(r, c, painter.width);
 
-        painter.paintWithPills(
+        painter.paintWithChips(
           canvas,
           Offset(
             currentX + horizontalPadding,

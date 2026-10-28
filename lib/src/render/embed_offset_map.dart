@@ -2,7 +2,7 @@ import 'package:flutter/painting.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
 import 'inline_embeds.dart';
-import 'vacancy_pill.dart';
+import 'chip.dart';
 
 /// Where one embed sits in a paragraph, in both offset spaces.
 @meta.internal
@@ -17,11 +17,11 @@ final class MarkdownEmbedEntry {
     this.trailing = false,
   });
 
-  /// Whether this is room after a pill's content, which a selection that ends
-  /// at the pill's last character takes in.
+  /// Whether this is room after a chip's content, which a selection that ends
+  /// at the chip's last character takes in.
   final bool trailing;
 
-  /// The placeholder span; null for a vacancy pill's icon glyph, which is a
+  /// The placeholder span; null for a chip's glyph, which is a
   /// code unit of the painter's text that the rendered text does not have.
   final MarkdownEmbedSpan? span;
 
@@ -33,7 +33,7 @@ final class MarkdownEmbedEntry {
   final int painterStart;
 
   /// How many code units of the painter's text the entry takes: one for a
-  /// placeholder, the glyph's length for a pill icon.
+  /// placeholder, the glyph's length for a chip glyph.
   final int painterLength;
 
   /// Rendered minus painter length of the entry.
@@ -91,7 +91,7 @@ final class MarkdownEmbedOffsets {
     var shift = 0; // rendered minus painter offset, before the next embed.
     void walk(InlineSpan span) {
       switch (span) {
-        case MarkdownPillGlyphSpan() || MarkdownPillSpacerSpan():
+        case MarkdownChipGlyphSpan() || MarkdownChipSpacerSpan():
           // Code units in the painter, none in the rendered text.
           final length = (span as TextSpan).text!.length;
           entries.add(MarkdownEmbedEntry._(
@@ -101,7 +101,7 @@ final class MarkdownEmbedOffsets {
             renderedStart: painterOffset + shift,
             alt: '',
             painterLength: length,
-            trailing: span is MarkdownPillSpacerSpan && span.trailing,
+            trailing: span is MarkdownChipSpacerSpan && span.trailing,
           ));
           shift -= length;
           painterOffset += length;
@@ -195,7 +195,7 @@ final class MarkdownEmbedOffsets {
     var shift = 0;
     for (final entry in entries) {
       if (renderedOffset <= entry.renderedStart) {
-        // The end of a range at a pill's last character takes in its
+        // The end of a range at a chip's last character takes in its
         // trailing room, so the selection tint is as even as the fill.
         if (end && entry.trailing && renderedOffset == entry.renderedStart) {
           shift += entry.shift;

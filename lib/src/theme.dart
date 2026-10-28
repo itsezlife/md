@@ -1,5 +1,4 @@
 import 'dart:collection';
-import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
@@ -99,16 +98,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.linkColor = Colors.indigo,
     this.linkStyle,
     this.mentionColor,
-    this.vacancyPillColor,
-    this.vacancyPillBackground,
-    this.vacancyPillMutedColor,
-    this.vacancyPillMutedBackground,
-    this.vacancyPillIcon,
-    this.vacancyPillRadius,
-    this.vacancyPillIconSize,
-    this.vacancyPillGap,
-    this.vacancyPillHorizontalPadding,
-    this.vacancyPillMargin,
+    this.chipStyle,
     this.surfaceColor = const Color.fromARGB(255, 235, 235, 235),
     this.highlightBackgroundColor = const Color(0x40FF5722),
     this.monospaceBackgroundColor = const Color(0x409E9E9E),
@@ -121,7 +111,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.builder,
     this.onLinkTap,
     this.onMentionTap,
-    this.onVacancyTap,
+    this.onChipTap,
     this.highlighter,
     this.cursorResolver,
     this.emojiRuns,
@@ -150,16 +140,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     Color? linkColor,
     TextStyle? linkStyle,
     Color? mentionColor,
-    Color? vacancyPillColor,
-    Color? vacancyPillBackground,
-    Color? vacancyPillMutedColor,
-    Color? vacancyPillMutedBackground,
-    IconData? vacancyPillIcon,
-    double? vacancyPillRadius,
-    double? vacancyPillIconSize,
-    double? vacancyPillGap,
-    double? vacancyPillHorizontalPadding,
-    double? vacancyPillMargin,
+    MarkdownChipStyle? chipStyle,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -172,7 +153,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
     void Function(String title, String url)? onLinkTap,
     void Function(String scheme, String? id, String name)? onMentionTap,
-    void Function(String target, String title)? onVacancyTap,
+    void Function(String target, String label)? onChipTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
     MarkdownEmojiRuns? emojiRuns,
@@ -197,16 +178,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       linkColor: linkColor ?? theme.colorScheme.primary,
       linkStyle: linkStyle,
       mentionColor: mentionColor,
-      vacancyPillColor: vacancyPillColor,
-      vacancyPillBackground: vacancyPillBackground,
-      vacancyPillMutedColor: vacancyPillMutedColor,
-      vacancyPillMutedBackground: vacancyPillMutedBackground,
-      vacancyPillIcon: vacancyPillIcon,
-      vacancyPillRadius: vacancyPillRadius,
-      vacancyPillIconSize: vacancyPillIconSize,
-      vacancyPillGap: vacancyPillGap,
-      vacancyPillHorizontalPadding: vacancyPillHorizontalPadding,
-      vacancyPillMargin: vacancyPillMargin,
+      chipStyle: chipStyle,
       surfaceColor: surfaceColor ?? theme.colorScheme.surfaceContainerHigh,
       highlightBackgroundColor:
           highlightBackgroundColor ?? theme.colorScheme.errorContainer,
@@ -225,7 +197,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       builder: builder,
       onLinkTap: onLinkTap,
       onMentionTap: onMentionTap,
-      onVacancyTap: onVacancyTap,
+      onChipTap: onChipTap,
       highlighter: highlighter,
       cursorResolver: cursorResolver,
       emojiRuns: emojiRuns,
@@ -281,47 +253,9 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// links.
   final Color? mentionColor;
 
-  /// The colour of a vacancy pill's icon and title ([MD$Style.vacancy]).
-  /// When `null`, the pill follows [linkColor].
-  final Color? vacancyPillColor;
-
-  /// The rounded fill behind a vacancy pill. When `null`, the pill colour at
-  /// 14% opacity.
-  final Color? vacancyPillBackground;
-
-  /// The icon and title colour of a muted pill (a vacancy reference that is
-  /// not resolved yet). When `null`, the text colour at 55% opacity.
-  final Color? vacancyPillMutedColor;
-
-  /// The fill behind a muted pill. When `null`, the muted colour at 10%
-  /// opacity.
-  final Color? vacancyPillMutedBackground;
-
-  /// The icon of a vacancy pill. When `null`, `Icons.work_outline_rounded`.
-  /// Its own `fontFamily` and `fontPackage` are used, whatever package the
-  /// host text style carries (for example `LucideIcons.briefcase_business`).
-  final IconData? vacancyPillIcon;
-
-  /// The corner radius of a vacancy pill's fill. When `null`, the ends are
-  /// fully rounded (half the line height). A larger value is capped at that.
-  final double? vacancyPillRadius;
-
-  /// The size of a vacancy pill's icon. When `null`, the text font size. It
-  /// widens the fill but never makes it taller than the title's line.
-  final double? vacancyPillIconSize;
-
-  /// The gap between a vacancy pill's icon and title. When `null`, 0.3 em.
-  final double? vacancyPillGap;
-
-  /// The room inside a vacancy pill's fill, before the icon and after the
-  /// title. When `null`, 0.3 em. It is layout: the text is pushed by it, so the
-  /// fill never overlaps a neighbouring glyph.
-  final double? vacancyPillHorizontalPadding;
-
-  /// The room outside a vacancy pill's fill on each side, which the text
-  /// around it flows past (a comma after a pill starts this far from the
-  /// fill). When `null`, 0.
-  final double? vacancyPillMargin;
+  /// How an inline chip ([MD$Style.chip]) looks. When `null`, the defaults
+  /// of [MarkdownChipStyle] apply.
+  final MarkdownChipStyle? chipStyle;
 
   /// The color to use for the background of the quote, block, table and etc.
   final Color? surfaceColor;
@@ -426,10 +360,10 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// label for `mention:`, and the username or tag for the other two.
   final void Function(String scheme, String? id, String name)? onMentionTap;
 
-  /// A callback that is called when a vacancy pill ([MD$Style.vacancy]) is
-  /// tapped. [target] is the pill's host target (for example `vref:V1`) and
-  /// [title] the text it shows. Neither [onLinkTap] nor [onMentionTap] fires.
-  final void Function(String target, String title)? onVacancyTap;
+  /// A callback that is called when an inline chip ([MD$Style.chip]) is
+  /// tapped. [target] is the chip's host target (for example `chip:1`) and
+  /// [label] the text it shows. Neither [onLinkTap] nor [onMentionTap] fires.
+  final void Function(String target, String label)? onChipTap;
 
   /// An optional syntax highlighter for fenced code blocks. When `null`, code
   /// is painted as plain monospace text.
@@ -522,6 +456,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
               var s when s.contains(MD$Style.bold) => FontWeight.bold,
               var s when s.contains(MD$Style.link) => FontWeight.bold,
               var s when s.contains(MD$Style.highlight) => FontWeight.bold,
+              var s when s.contains(MD$Style.chip) => chipStyle?.fontWeight,
               _ => null,
             },
             fontStyle:
@@ -540,8 +475,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
                 : null,
             color: switch (style) {
               var s when s.contains(MD$Style.link) => linkColor,
-              var s when s.contains(MD$Style.vacancy) =>
-                vacancyPillColor ?? linkColor,
+              var s when s.contains(MD$Style.chip) =>
+                chipStyle?.color ?? linkColor,
               var s when s.contains(MD$Style.mention) =>
                 mentionColor ?? linkColor,
               _ => null,
@@ -567,7 +502,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// A `null` argument keeps the current value, as in Flutter's own themes,
   /// so `copyWith(onLinkTap: null)` does not remove a link handler. To remove
   /// a callback, pass its `clear*` flag: [clearOnLinkTap], [clearOnMentionTap],
-  /// [clearOnVacancyTap],
+  /// [clearOnChipTap],
   /// [clearBlockFilter], [clearSpanFilter], [clearBuilder],
   /// [clearCursorResolver] or [clearEmojiRuns]. A flag and a new value for the
   /// same callback are mutually exclusive.
@@ -586,16 +521,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     Color? linkColor,
     TextStyle? linkStyle,
     Color? mentionColor,
-    Color? vacancyPillColor,
-    Color? vacancyPillBackground,
-    Color? vacancyPillMutedColor,
-    Color? vacancyPillMutedBackground,
-    IconData? vacancyPillIcon,
-    double? vacancyPillRadius,
-    double? vacancyPillIconSize,
-    double? vacancyPillGap,
-    double? vacancyPillHorizontalPadding,
-    double? vacancyPillMargin,
+    MarkdownChipStyle? chipStyle,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -608,7 +534,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
     void Function(String title, String url)? onLinkTap,
     void Function(String scheme, String? id, String name)? onMentionTap,
-    void Function(String target, String title)? onVacancyTap,
+    void Function(String target, String label)? onChipTap,
     SyntaxHighlighter? highlighter,
     MarkdownCursorResolver? cursorResolver,
     MarkdownEmojiRuns? emojiRuns,
@@ -618,7 +544,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     bool clearBuilder = false,
     bool clearOnLinkTap = false,
     bool clearOnMentionTap = false,
-    bool clearOnVacancyTap = false,
+    bool clearOnChipTap = false,
     bool clearCursorResolver = false,
     bool clearEmojiRuns = false,
   }) {
@@ -628,7 +554,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
           !(clearBuilder && builder != null) &&
           !(clearOnLinkTap && onLinkTap != null) &&
           !(clearOnMentionTap && onMentionTap != null) &&
-          !(clearOnVacancyTap && onVacancyTap != null) &&
+          !(clearOnChipTap && onChipTap != null) &&
           !(clearCursorResolver && cursorResolver != null) &&
           !(clearEmojiRuns && emojiRuns != null),
       'Pass either a callback or its clear flag, not both.',
@@ -647,20 +573,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       linkColor: linkColor ?? this.linkColor,
       linkStyle: linkStyle ?? this.linkStyle,
       mentionColor: mentionColor ?? this.mentionColor,
-      vacancyPillColor: vacancyPillColor ?? this.vacancyPillColor,
-      vacancyPillBackground:
-          vacancyPillBackground ?? this.vacancyPillBackground,
-      vacancyPillMutedColor:
-          vacancyPillMutedColor ?? this.vacancyPillMutedColor,
-      vacancyPillMutedBackground:
-          vacancyPillMutedBackground ?? this.vacancyPillMutedBackground,
-      vacancyPillIcon: vacancyPillIcon ?? this.vacancyPillIcon,
-      vacancyPillRadius: vacancyPillRadius ?? this.vacancyPillRadius,
-      vacancyPillIconSize: vacancyPillIconSize ?? this.vacancyPillIconSize,
-      vacancyPillGap: vacancyPillGap ?? this.vacancyPillGap,
-      vacancyPillHorizontalPadding:
-          vacancyPillHorizontalPadding ?? this.vacancyPillHorizontalPadding,
-      vacancyPillMargin: vacancyPillMargin ?? this.vacancyPillMargin,
+      chipStyle: chipStyle ?? this.chipStyle,
       surfaceColor: surfaceColor ?? this.surfaceColor,
       highlightBackgroundColor:
           highlightBackgroundColor ?? this.highlightBackgroundColor,
@@ -677,8 +590,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       onLinkTap: clearOnLinkTap ? null : onLinkTap ?? this.onLinkTap,
       onMentionTap:
           clearOnMentionTap ? null : onMentionTap ?? this.onMentionTap,
-      onVacancyTap:
-          clearOnVacancyTap ? null : onVacancyTap ?? this.onVacancyTap,
+      onChipTap: clearOnChipTap ? null : onChipTap ?? this.onChipTap,
       highlighter: highlighter ?? this.highlighter,
       cursorResolver:
           clearCursorResolver ? null : cursorResolver ?? this.cursorResolver,
@@ -710,24 +622,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       linkColor: Color.lerp(linkColor, other?.linkColor, t),
       linkStyle: TextStyle.lerp(linkStyle, other?.linkStyle, t),
       mentionColor: Color.lerp(mentionColor, other?.mentionColor, t),
-      vacancyPillColor:
-          Color.lerp(vacancyPillColor, other?.vacancyPillColor, t),
-      vacancyPillBackground:
-          Color.lerp(vacancyPillBackground, other?.vacancyPillBackground, t),
-      vacancyPillMutedColor:
-          Color.lerp(vacancyPillMutedColor, other?.vacancyPillMutedColor, t),
-      vacancyPillMutedBackground: Color.lerp(
-          vacancyPillMutedBackground, other?.vacancyPillMutedBackground, t),
-      vacancyPillIcon: t < 0.5 ? vacancyPillIcon : other?.vacancyPillIcon,
-      vacancyPillRadius:
-          lerpDouble(vacancyPillRadius, other?.vacancyPillRadius, t),
-      vacancyPillIconSize:
-          lerpDouble(vacancyPillIconSize, other?.vacancyPillIconSize, t),
-      vacancyPillGap: lerpDouble(vacancyPillGap, other?.vacancyPillGap, t),
-      vacancyPillHorizontalPadding: lerpDouble(
-          vacancyPillHorizontalPadding, other?.vacancyPillHorizontalPadding, t),
-      vacancyPillMargin:
-          lerpDouble(vacancyPillMargin, other?.vacancyPillMargin, t),
+      chipStyle: MarkdownChipStyle.lerp(chipStyle, other?.chipStyle, t),
       surfaceColor: Color.lerp(surfaceColor, other?.surfaceColor, t),
       highlightBackgroundColor: Color.lerp(
           highlightBackgroundColor, other?.highlightBackgroundColor, t),
@@ -747,7 +642,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       builder: t < 0.5 ? builder : other?.builder,
       onLinkTap: t < 0.5 ? onLinkTap : other?.onLinkTap,
       onMentionTap: t < 0.5 ? onMentionTap : other?.onMentionTap,
-      onVacancyTap: t < 0.5 ? onVacancyTap : other?.onVacancyTap,
+      onChipTap: t < 0.5 ? onChipTap : other?.onChipTap,
       highlighter: t < 0.5 ? highlighter : other?.highlighter,
       cursorResolver: t < 0.5 ? cursorResolver : other?.cursorResolver,
       emojiRuns: t < 0.5 ? emojiRuns : other?.emojiRuns,

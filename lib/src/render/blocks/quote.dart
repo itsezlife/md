@@ -284,7 +284,7 @@ class BlockPainter$Quote
     }
 
     if (_leafPainter != null) {
-      _leafPainter.paintWithPills(canvas, Offset(_contentLeft, offset));
+      _leafPainter.paintWithChips(canvas, Offset(_contentLeft, offset));
       return;
     }
 

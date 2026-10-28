@@ -296,11 +296,11 @@ class BlockPainter$Alert
         ..style = PaintingStyle.fill,
     );
 
-    titlePainter.paintWithPills(canvas, Offset(_contentLeft, offset + padding));
+    titlePainter.paintWithChips(canvas, Offset(_contentLeft, offset + padding));
     if (!_hasBody) return;
 
     if (_bodyPainter != null) {
-      _bodyPainter.paintWithPills(canvas, _bodyOrigin + Offset(0, offset));
+      _bodyPainter.paintWithChips(canvas, _bodyOrigin + Offset(0, offset));
       return;
     }
 

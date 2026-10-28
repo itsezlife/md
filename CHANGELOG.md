@@ -1,55 +1,80 @@
+## 0.6.0
+
+The inline chip is one style object, has no glyph unless a host asks for one,
+and its glyph is centred on the label. The release tag is `v0.6.0`; depend on
+it by git ref as described under 0.3.0's *Fork status*.
+
+### Spans
+- **CHANGED**: the 0.5.x chip theme fields and tap callback are replaced, not
+  deprecated. `MD$Style.chip` (same bit) and `MD$Span.chip(start:, text:,
+  target:, muted:)` build the span; `extra` holds `type: 'chip'`, `target` and
+  `muted`. `MarkdownThemeData.chipStyle` takes one immutable
+  `MarkdownChipStyle` (`color`, `background`, `mutedColor`, `mutedBackground`,
+  `icon`, `iconSize`, `gap`, `radius`, `horizontalPadding`, `margin`,
+  `fontWeight`; const constructor, `copyWith`, `lerp`, `==`). A tap calls
+  `MarkdownThemeData.onChipTap(target, label)`; `copyWith` clears it with
+  `clearOnChipTap`.
+- **CHANGED**: a chip has no glyph by default (`icon` is `null`; there is no
+  Material icon default). Radius stays fully rounded, horizontal padding 0.3 em,
+  margin 0, and the colours derive from `linkColor`.
+- **ADDED**: `MarkdownChipStyle.fontWeight` applies to the chip's runs (the
+  label and the room around it), not the glyph.
+- **FIXED**: the chip's glyph was not vertically centred on the label: an icon
+  font's ascent and descent differ from the text font's, so on the shared
+  baseline the glyph sat high or low. The glyph run now only reserves its
+  room (transparent, same offsets as before); `paintWithChips` draws the glyph
+  centred on the label's line box. The fill height, the line height and the
+  selection geometry are unchanged. The new `chipGlyphBoxes` lists where the
+  glyphs are drawn.
+- **CHANGED**: internal renamed to match: `MarkdownChipSpan`,
+  `MarkdownChipGlyphSpan`, `MarkdownChipSpacerSpan`, `buildChip`,
+  `MarkdownChipPainter.chipBoxes` and `paintWithChips`.
+
 ## 0.5.1
 
-The vacancy pill icon showed a tofu box in a host whose text style carries a
-font package, and the pill is now themable. The release tag is `v0.5.1`; depend
+The inline chip glyph showed a tofu box in a host whose text style carries a
+font package, and the chip is now themable. The release tag is `v0.5.1`; depend
 on it by git ref as described under 0.3.0's *Fork status*.
 
 ### Spans
-- **FIXED**: the pill icon rendered as a tofu box when the host text style had
-  a `package` (a font from `package:app_ui`). The glyph style was a `copyWith`
+- **FIXED**: the chip glyph rendered as a tofu box when the host text style had
+  a `package` (a font from a host package). The glyph style was a `copyWith`
   of the host style, and `copyWith(package: null)` keeps the host package, so
-  the family became `packages/app_ui/MaterialIcons`. The glyph style is now
+  the family became `packages/<host>/MaterialIcons`. The glyph style is now
   built fresh from the icon's own `fontFamily` and `fontPackage`.
-- **FIXED**: the fill of a pill is as tall as the title's line, so a larger
-  icon never grows it into neighbouring lines, and lines of a wrapped pill are
+- **FIXED**: the fill of a chip is as tall as the label's line, so a larger
+  glyph never grows it into neighbouring lines, and lines of a wrapped chip are
   told apart by overlap, not by an equal top.
-- **ADDED**: `MarkdownThemeData.vacancyPillIcon` (`IconData?`, default
-  `Icons.work_outline_rounded`), `vacancyPillRadius` (`double?`, default fully
-  rounded), `vacancyPillIconSize` (`double?`, default the font size),
-  `vacancyPillGap` (`double?`, default 0.3 em) and
-  `vacancyPillHorizontalPadding` (`double?`, default 0.3 em). All
-  are in `copyWith` and `lerp`.
-- **CHANGED**: the pill's horizontal padding is real layout, not paint only:
+- **ADDED**: theme fields for the chip's icon, radius (default fully rounded),
+  icon size (default the font size), gap (default 0.3 em) and horizontal
+  padding (default 0.3 em), all in `copyWith` and `lerp`.
+- **CHANGED**: the chip's horizontal padding is real layout, not paint only:
   zero-width code units (U+2062, letter-spaced) push the text inside the fill,
   so the fill no longer overlaps the preceding word or a following comma. A
-  wrapped pill is padded at its real start and end only.
-- **ADDED**: `MarkdownThemeData.vacancyPillMargin` (`double?`, default 0): room
-  outside the fill on each side that the text flows past (a web `mx-0.5` is 2).
-  The room is painter text the rendered text does not have, like the icon, so
-  copy and selection still see the title; a selection that ends at the title
-  takes in the trailing room.
+  wrapped chip is padded at its real start and end only.
+- **ADDED**: a chip margin (default 0): room outside the fill on each side
+  that the text flows past. The room is painter text the rendered text does not
+  have, like the glyph, so copy and selection still see the label; a selection
+  that ends at the label takes in the trailing room.
 
 ## 0.5.0
 
-A vacancy pill: an inline span a host builds, with a briefcase icon, the title
-and a tinted rounded fill. The release tag is `v0.5.0`; depend on it by git ref
-as described under 0.3.0's *Fork status*.
+An inline chip: a span a host builds, with a leading glyph, a label and a
+tinted rounded fill. The release tag is `v0.5.0`; depend on it by git ref as
+described under 0.3.0's *Fork status*.
 
 ### Spans
-- **ADDED**: `MD$Style.vacancy` and `MD$Span.vacancy(start:, title:, target:,
-  muted:)`. The pill is built from a span, not parsed from markdown, and is
-  exclusive with `link` and `mention`. It is text: it wraps, selects and
-  copies as its title (the icon is not text, so a plain copy is the title).
-  Colours come from `MarkdownThemeData.vacancyPillColor`,
-  `vacancyPillBackground` and the muted pair `vacancyPillMutedColor` /
-  `vacancyPillMutedBackground` (a muted pill stands for a reference that is
-  not resolved yet). A tap calls `MarkdownThemeData.onVacancyTap(target,
-  title)`, never `onLinkTap` or `onMentionTap`; `copyWith` clears it with
-  `clearOnVacancyTap`. A pill is as tall as its line: a host that needs a 48 dp
-  hit target pads the block.
+- **ADDED**: `MD$Style` bit for the chip and a span factory that builds it. The
+  chip is built from a span, not parsed from markdown, and is exclusive with
+  `link` and `mention`. It is text: it wraps, selects and copies as its label
+  (the glyph is not text, so a plain copy is the label). Colours come from the
+  theme, with a muted pair for a chip that is not active yet. A tap calls a
+  dedicated theme callback with the chip's target and label, never `onLinkTap`
+  or `onMentionTap`; `copyWith` clears it with a `clearOn...Tap` flag. A chip
+  is as tall as its line: a host that needs a 48 dp hit target pads the block.
 - **CHANGED**: the selection tint is drawn above the glyph picture for text
-  with a pill, as for highlight and code fills. The offset map treats the
-  pill's icon as painter text with no rendered text.
+  with a chip, as for highlight and code fills. The offset map treats the
+  chip's glyph as painter text with no rendered text.
 
 ## 0.4.5
 
