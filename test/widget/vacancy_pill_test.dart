@@ -133,6 +133,97 @@ void main() => group('Vacancy pill', () {
         block.dispose();
       });
 
+      test('the glyph family does not inherit a host font package', () {
+        const host = TextStyle(
+          fontFamily: 'Geist',
+          package: 'app_ui',
+          fontSize: 14,
+        );
+        // The bug: copyWith keeps the host package for the icon family.
+        final broken = host.copyWith(
+          fontFamily: Icons.work_outline_rounded.fontFamily,
+          package: Icons.work_outline_rounded.fontPackage,
+        );
+        expect(broken.fontFamily, 'packages/app_ui/MaterialIcons');
+        final glyph = MarkdownPillGlyphSpan(
+          style: host,
+          icon: Icons.work_outline_rounded,
+        );
+        expect(glyph.style!.fontFamily, 'MaterialIcons');
+        expect(glyph.style!.fontFamilyFallback, isNull);
+        final themed = paragraphFromMarkdownSpans(
+          spans: _spans(),
+          theme: MarkdownThemeData(
+            textStyle: host,
+            vacancyPillIcon: const IconData(
+              0xe000,
+              fontFamily: 'LucideIcons',
+              fontPackage: 'flutter_lucide',
+            ),
+          ),
+        );
+        final g = _pillOf(themed).children!.first as TextSpan;
+        expect(g.style!.fontFamily, 'packages/flutter_lucide/LucideIcons');
+        expect(g.text, String.fromCharCode(0xe000));
+      });
+
+      test('icon, size and gap are themable; copy stays the title', () {
+        final theme = MarkdownThemeData(
+          textStyle: const TextStyle(fontSize: 14),
+          vacancyPillIcon: Icons.star,
+          vacancyPillIconSize: 18,
+          vacancyPillGap: 4,
+        );
+        final root = _build(theme);
+        final pill = _pillOf(root);
+        final glyph = pill.children!.first as TextSpan;
+        expect(glyph.text, String.fromCharCode(Icons.star.codePoint));
+        expect(glyph.style!.fontSize, 18);
+        expect(glyph.style!.letterSpacing, 4);
+        final painterText = root.toPlainText(includeSemanticsLabels: false);
+        final map = MarkdownEmbedOffsets.ofSpan(root);
+        expect(map.renderedText(painterText), 'Hey Flutter Dev done');
+      });
+
+      test('radius is themable and the fill height ignores a big icon', () {
+        BlockPainter$Paragraph para(MarkdownThemeData t) =>
+            BlockPainter$Paragraph(spans: _spans(), theme: t)..layout(300);
+        final plain = para(_theme());
+        final round = plain.painter.pillBoxes.single.$1;
+        expect(round.tlRadiusX, closeTo(round.height / 2, 0.01));
+        final boxy = para(MarkdownThemeData(
+          textStyle: const TextStyle(fontSize: 14),
+          vacancyPillRadius: 6,
+          vacancyPillIconSize: 22,
+          vacancyPillHorizontalPadding: 8,
+        ));
+        final r = boxy.painter.pillBoxes.single.$1;
+        expect(r.tlRadiusX, 6);
+        expect(r.height, closeTo(round.height, 1.0));
+        plain.dispose();
+        boxy.dispose();
+      });
+
+      test('a wrapped pill gets one fill per line, none overlapping', () {
+        final block = BlockPainter$Paragraph(
+          spans: [
+            MD$Span.vacancy(
+              start: 0,
+              title: 'Senior Flutter Developer for a long wrapped title',
+              target: 'vref:V1',
+            ),
+          ],
+          theme: _theme(),
+        )..layout(120);
+        final fills = block.painter.pillBoxes;
+        expect(fills.length, greaterThan(1));
+        for (var i = 1; i < fills.length; i++) {
+          expect(fills[i].$1.top,
+              greaterThanOrEqualTo(fills[i - 1].$1.bottom - 0.5));
+        }
+        block.dispose();
+      });
+
       test('the selection tint is painted above the pill fill', () {
         expect(markdownSpansPaintOpaqueBackground(_spans()), isTrue);
       });

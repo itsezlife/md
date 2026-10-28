@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
@@ -102,6 +103,11 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.vacancyPillBackground,
     this.vacancyPillMutedColor,
     this.vacancyPillMutedBackground,
+    this.vacancyPillIcon,
+    this.vacancyPillRadius,
+    this.vacancyPillIconSize,
+    this.vacancyPillGap,
+    this.vacancyPillHorizontalPadding,
     this.surfaceColor = const Color.fromARGB(255, 235, 235, 235),
     this.highlightBackgroundColor = const Color(0x40FF5722),
     this.monospaceBackgroundColor = const Color(0x409E9E9E),
@@ -147,6 +153,11 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     Color? vacancyPillBackground,
     Color? vacancyPillMutedColor,
     Color? vacancyPillMutedBackground,
+    IconData? vacancyPillIcon,
+    double? vacancyPillRadius,
+    double? vacancyPillIconSize,
+    double? vacancyPillGap,
+    double? vacancyPillHorizontalPadding,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -188,6 +199,11 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       vacancyPillBackground: vacancyPillBackground,
       vacancyPillMutedColor: vacancyPillMutedColor,
       vacancyPillMutedBackground: vacancyPillMutedBackground,
+      vacancyPillIcon: vacancyPillIcon,
+      vacancyPillRadius: vacancyPillRadius,
+      vacancyPillIconSize: vacancyPillIconSize,
+      vacancyPillGap: vacancyPillGap,
+      vacancyPillHorizontalPadding: vacancyPillHorizontalPadding,
       surfaceColor: surfaceColor ?? theme.colorScheme.surfaceContainerHigh,
       highlightBackgroundColor:
           highlightBackgroundColor ?? theme.colorScheme.errorContainer,
@@ -277,6 +293,26 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// The fill behind a muted pill. When `null`, the muted colour at 10%
   /// opacity.
   final Color? vacancyPillMutedBackground;
+
+  /// The icon of a vacancy pill. When `null`, `Icons.work_outline_rounded`.
+  /// Its own `fontFamily` and `fontPackage` are used, whatever package the
+  /// host text style carries (for example `LucideIcons.briefcase_business`).
+  final IconData? vacancyPillIcon;
+
+  /// The corner radius of a vacancy pill's fill. When `null`, the ends are
+  /// fully rounded (half the line height). A larger value is capped at that.
+  final double? vacancyPillRadius;
+
+  /// The size of a vacancy pill's icon. When `null`, the text font size. It
+  /// widens the fill but never makes it taller than the title's line.
+  final double? vacancyPillIconSize;
+
+  /// The gap between a vacancy pill's icon and title. When `null`, 0.3 em.
+  final double? vacancyPillGap;
+
+  /// How far a vacancy pill's fill reaches past its icon and title on each
+  /// side. When `null`, 0.3 em. It is paint only: it does not move the text.
+  final double? vacancyPillHorizontalPadding;
 
   /// The color to use for the background of the quote, block, table and etc.
   final Color? surfaceColor;
@@ -545,6 +581,11 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     Color? vacancyPillBackground,
     Color? vacancyPillMutedColor,
     Color? vacancyPillMutedBackground,
+    IconData? vacancyPillIcon,
+    double? vacancyPillRadius,
+    double? vacancyPillIconSize,
+    double? vacancyPillGap,
+    double? vacancyPillHorizontalPadding,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -603,6 +644,12 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
           vacancyPillMutedColor ?? this.vacancyPillMutedColor,
       vacancyPillMutedBackground:
           vacancyPillMutedBackground ?? this.vacancyPillMutedBackground,
+      vacancyPillIcon: vacancyPillIcon ?? this.vacancyPillIcon,
+      vacancyPillRadius: vacancyPillRadius ?? this.vacancyPillRadius,
+      vacancyPillIconSize: vacancyPillIconSize ?? this.vacancyPillIconSize,
+      vacancyPillGap: vacancyPillGap ?? this.vacancyPillGap,
+      vacancyPillHorizontalPadding:
+          vacancyPillHorizontalPadding ?? this.vacancyPillHorizontalPadding,
       surfaceColor: surfaceColor ?? this.surfaceColor,
       highlightBackgroundColor:
           highlightBackgroundColor ?? this.highlightBackgroundColor,
@@ -660,6 +707,14 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
           Color.lerp(vacancyPillMutedColor, other?.vacancyPillMutedColor, t),
       vacancyPillMutedBackground: Color.lerp(
           vacancyPillMutedBackground, other?.vacancyPillMutedBackground, t),
+      vacancyPillIcon: t < 0.5 ? vacancyPillIcon : other?.vacancyPillIcon,
+      vacancyPillRadius:
+          lerpDouble(vacancyPillRadius, other?.vacancyPillRadius, t),
+      vacancyPillIconSize:
+          lerpDouble(vacancyPillIconSize, other?.vacancyPillIconSize, t),
+      vacancyPillGap: lerpDouble(vacancyPillGap, other?.vacancyPillGap, t),
+      vacancyPillHorizontalPadding: lerpDouble(
+          vacancyPillHorizontalPadding, other?.vacancyPillHorizontalPadding, t),
       surfaceColor: Color.lerp(surfaceColor, other?.surfaceColor, t),
       highlightBackgroundColor: Color.lerp(
           highlightBackgroundColor, other?.highlightBackgroundColor, t),

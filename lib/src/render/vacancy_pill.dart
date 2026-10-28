@@ -7,23 +7,42 @@ import 'package:meta/meta.dart' as meta show internal;
 import '../nodes.dart';
 import '../theme.dart';
 
-/// The briefcase glyph of a vacancy pill: one code unit of the painter's text
-/// that the rendered text (selection, copy) does not have. The offset map in
+/// The icon glyph of a vacancy pill: one code unit of the painter's text that
+/// the rendered text (selection, copy) does not have. The offset map in
 /// `embed_offset_map.dart` bridges the two.
 @meta.internal
 final class MarkdownPillGlyphSpan extends TextSpan {
   /// Creates the icon run of a pill set in [style].
-  MarkdownPillGlyphSpan({required TextStyle style, super.recognizer})
-      : super(
-          text: String.fromCharCode(Icons.work_outline_rounded.codePoint),
-          style: style.copyWith(
-            fontFamily: Icons.work_outline_rounded.fontFamily,
-            package: Icons.work_outline_rounded.fontPackage,
+  ///
+  /// The glyph style is built fresh, not as a `copyWith` of [style]: a host
+  /// style that carries a font `package` would otherwise keep it, and the
+  /// icon family would resolve to `packages/<host>/<icon family>`, which does
+  /// not exist (a tofu box). [gap] is the space after the icon, [size] its
+  /// font size (the text size when `null`).
+  MarkdownPillGlyphSpan({
+    required TextStyle style,
+    required IconData icon,
+    double? gap,
+    double? size,
+    super.recognizer,
+  }) : super(
+          text: String.fromCharCode(icon.codePoint),
+          style: TextStyle(
+            inherit: false,
+            color: style.color,
+            backgroundColor: style.backgroundColor,
+            fontSize: size ?? style.fontSize ?? kDefaultFontSize,
+            fontFamily: icon.fontFamily,
+            package: icon.fontPackage,
             fontWeight: FontWeight.normal,
             fontStyle: FontStyle.normal,
-            fontFamilyFallback: const <String>[],
+            height: style.height,
+            textBaseline: style.textBaseline,
+            leadingDistribution: style.leadingDistribution,
+            locale: style.locale,
             // The gap between the icon and the title.
-            letterSpacing: (style.fontSize ?? kDefaultFontSize) * 0.3,
+            letterSpacing: gap ?? (style.fontSize ?? kDefaultFontSize) * 0.3,
+            decoration: TextDecoration.none,
           ),
         );
 }
@@ -38,19 +57,38 @@ final class MarkdownPillSpan extends TextSpan {
     required TextStyle style,
     required this.background,
     required this.muted,
+    IconData? icon,
+    double? iconSize,
+    double? gap,
+    this.radius,
+    double? horizontalPadding,
     GestureRecognizer? recognizer,
-  }) : super(
+  })  : padding =
+            horizontalPadding ?? (style.fontSize ?? kDefaultFontSize) * 0.3,
+        super(
           children: <InlineSpan>[
-            MarkdownPillGlyphSpan(style: style, recognizer: recognizer),
+            MarkdownPillGlyphSpan(
+              style: style,
+              icon: icon ?? Icons.work_outline_rounded,
+              gap: gap,
+              size: iconSize,
+              recognizer: recognizer,
+            ),
             TextSpan(text: title, style: style, recognizer: recognizer),
           ],
         );
 
-  /// The rounded fill behind the pill.
+  /// The fill behind the pill.
   final Color background;
 
   /// Whether the pill stands for a reference that is not resolved yet.
   final bool muted;
+
+  /// The corner radius of the fill; null for fully rounded ends.
+  final double? radius;
+
+  /// How far the fill reaches past the content on each side.
+  final double padding;
 
   /// Code units the icon takes in the painter's text.
   int get glyphLength => (children!.first as TextSpan).text!.length;
@@ -86,24 +124,29 @@ MarkdownPillSpan buildVacancyPill(
     style: style.copyWith(color: color),
     background: background,
     muted: muted,
+    icon: theme.vacancyPillIcon,
+    iconSize: theme.vacancyPillIconSize,
+    gap: theme.vacancyPillGap,
+    radius: theme.vacancyPillRadius,
+    horizontalPadding: theme.vacancyPillHorizontalPadding,
     recognizer: recognizer,
   );
 }
 
 /// Pill ranges of one painter text, in painter offsets.
-final Expando<List<(TextRange, Color)>> _ranges =
-    Expando<List<(TextRange, Color)>>('pillRanges');
+final Expando<List<(TextRange, MarkdownPillSpan)>> _ranges =
+    Expando<List<(TextRange, MarkdownPillSpan)>>('pillRanges');
 
-List<(TextRange, Color)> _pillRanges(InlineSpan root) {
+List<(TextRange, MarkdownPillSpan)> _pillRanges(InlineSpan root) {
   final cached = _ranges[root];
   if (cached != null) return cached;
-  final out = <(TextRange, Color)>[];
+  final out = <(TextRange, MarkdownPillSpan)>[];
   var offset = 0;
   void walk(InlineSpan span) {
     if (span is MarkdownPillSpan) {
       final start = offset;
       span.children?.forEach(walk);
-      out.add((TextRange(start: start, end: offset), span.background));
+      out.add((TextRange(start: start, end: offset), span));
       return;
     }
     if (span is TextSpan) {
@@ -129,36 +172,50 @@ extension MarkdownPillPainter on TextPainter {
     if (root == null) return const <(RRect, Color)>[];
     final ranges = _pillRanges(root);
     if (ranges.isEmpty) return const <(RRect, Color)>[];
-    final pad = (root.style?.fontSize ?? kDefaultFontSize) * 0.3;
     final out = <(RRect, Color)>[];
-    for (final (range, color) in ranges) {
-      final boxes = getBoxesForSelection(
-        TextSelection(baseOffset: range.start, extentOffset: range.end),
-        boxHeightStyle: BoxHeightStyle.tight,
-      );
-      Rect? line;
-      void flush() {
-        if (line == null) return;
-        final r = line!;
-        final rect = Rect.fromLTRB(
-          r.left - pad,
-          r.top,
-          r.right + pad,
-          r.bottom,
+    for (final (range, pill) in ranges) {
+      final pad = pill.padding;
+      final split = range.start + pill.glyphLength;
+      List<Rect> rects(int from, int to) => getBoxesForSelection(
+            TextSelection(baseOffset: from, extentOffset: to),
+            boxHeightStyle: BoxHeightStyle.tight,
+          ).map((b) => b.toRect()).toList();
+      // The height of the fill is the title's line, so an icon larger than the
+      // text widens a fill but never grows it into the lines around it.
+      // Boxes of one line are told apart by their centre, not by an equal top.
+      final lines = <Rect>[];
+      for (final rect in rects(split, range.end)) {
+        final i = lines.indexWhere(
+          (l) => rect.center.dy >= l.top && rect.center.dy <= l.bottom,
         );
-        out.add((
-          RRect.fromRectXY(rect, rect.height / 2, rect.height / 2),
-          color,
-        ));
-        line = null;
+        if (i < 0) {
+          lines.add(rect);
+        } else {
+          lines[i] = lines[i].expandToInclude(rect);
+        }
       }
-
-      for (final box in boxes) {
-        final rect = box.toRect();
-        if (line != null && (line!.top - rect.top).abs() > 0.5) flush();
-        line = line?.expandToInclude(rect) ?? rect;
+      if (lines.isEmpty) continue;
+      for (final glyph in rects(range.start, split)) {
+        final i = lines.indexWhere(
+          (l) => glyph.center.dy >= l.top && glyph.center.dy <= l.bottom,
+        );
+        if (i < 0) continue;
+        final l = lines[i];
+        lines[i] = Rect.fromLTRB(
+          glyph.left < l.left ? glyph.left : l.left,
+          l.top,
+          glyph.right > l.right ? glyph.right : l.right,
+          l.bottom,
+        );
       }
-      flush();
+      for (final r in lines) {
+        final rect =
+            Rect.fromLTRB(r.left - pad, r.top, r.right + pad, r.bottom);
+        final radius = pill.radius == null
+            ? rect.height / 2
+            : pill.radius!.clamp(0.0, rect.height / 2);
+        out.add((RRect.fromRectXY(rect, radius, radius), pill.background));
+      }
     }
     return out;
   }

@@ -1,3 +1,25 @@
+## 0.5.1
+
+The vacancy pill icon showed a tofu box in a host whose text style carries a
+font package, and the pill is now themable. The release tag is `v0.5.1`; depend
+on it by git ref as described under 0.3.0's *Fork status*.
+
+### Spans
+- **FIXED**: the pill icon rendered as a tofu box when the host text style had
+  a `package` (a font from `package:app_ui`). The glyph style was a `copyWith`
+  of the host style, and `copyWith(package: null)` keeps the host package, so
+  the family became `packages/app_ui/MaterialIcons`. The glyph style is now
+  built fresh from the icon's own `fontFamily` and `fontPackage`.
+- **FIXED**: the fill of a pill is as tall as the title's line, so a larger
+  icon never grows it into neighbouring lines, and lines of a wrapped pill are
+  told apart by overlap, not by an equal top.
+- **ADDED**: `MarkdownThemeData.vacancyPillIcon` (`IconData?`, default
+  `Icons.work_outline_rounded`), `vacancyPillRadius` (`double?`, default fully
+  rounded), `vacancyPillIconSize` (`double?`, default the font size),
+  `vacancyPillGap` (`double?`, default 0.3 em) and
+  `vacancyPillHorizontalPadding` (`double?`, default 0.3 em; paint only). All
+  are in `copyWith` and `lerp`.
+
 ## 0.5.0
 
 A vacancy pill: an inline span a host builds, with a briefcase icon, the title
