@@ -41,6 +41,10 @@ List<MD$Span> _spans({bool muted = false}) => [
 TextSpan _build(MarkdownThemeData theme, {bool muted = false}) =>
     paragraphFromMarkdownSpans(spans: _spans(muted: muted), theme: theme);
 
+TextSpan _titleOf(MarkdownPillSpan pill) =>
+    pill.children!.whereType<TextSpan>().singleWhere(
+        (c) => c is! MarkdownPillGlyphSpan && c is! MarkdownPillSpacerSpan);
+
 MarkdownPillSpan _pillOf(TextSpan root) =>
     root.children!.whereType<MarkdownPillSpan>().single;
 
@@ -59,8 +63,8 @@ void main() => group('Vacancy pill', () {
         final pill = _pillOf(_build(_theme()));
         expect(pill.background, _fill);
         expect(pill.muted, isFalse);
-        final [glyph, title] = pill.children!.cast<TextSpan>();
-        expect(glyph, isA<MarkdownPillGlyphSpan>());
+        final glyph = pill.children!.whereType<MarkdownPillGlyphSpan>().single;
+        final title = _titleOf(pill);
         expect(glyph.style!.color, _pill);
         expect(glyph.style!.fontFamily, Icons.work_outline_rounded.fontFamily);
         expect(title.text, 'Flutter Dev');
@@ -71,7 +75,7 @@ void main() => group('Vacancy pill', () {
         final pill = _pillOf(_build(_theme(), muted: true));
         expect(pill.muted, isTrue);
         expect(pill.background, _mutedFill);
-        expect((pill.children!.last as TextSpan).style!.color, _muted);
+        expect(_titleOf(pill).style!.color, _muted);
       });
 
       test('a tap fires only the vacancy callback, with target and title', () {
@@ -82,7 +86,9 @@ void main() => group('Vacancy pill', () {
           onMentionTap: (_, __, ___) => taps.add('mention'),
         ));
         final pill = _pillOf(root);
-        for (final child in pill.children!.cast<TextSpan>()) {
+        for (final child in pill.children!
+            .cast<TextSpan>()
+            .where((c) => c is! MarkdownPillSpacerSpan)) {
           (child.recognizer! as TapGestureRecognizer).onTap!();
         }
         expect(taps, ['vref:V1|Flutter Dev', 'vref:V1|Flutter Dev']);
@@ -97,16 +103,19 @@ void main() => group('Vacancy pill', () {
 
       test('copy and selection see the title only', () {
         final root = _build(_theme());
-        final g = _pillOf(root).glyphLength;
+        final pill = _pillOf(root);
+        final g = pill.leadLength;
         final painterText = root.toPlainText(includeSemanticsLabels: false);
-        // The icon is code units of the painter's text, none of the rendered.
-        expect(painterText.length, 20 + g);
+        // Icon and room are code units of the painter's text, none of the
+        // rendered.
+        expect(painterText.length, 20 + pill.markerLength);
         final map = MarkdownEmbedOffsets.ofSpan(root);
         expect(map.renderedText(painterText), 'Hey Flutter Dev done');
         expect(map.renderedLength(painterText.length), 20);
         expect(map.toPainter(4), 4);
         expect(map.toPainter(5), 5 + g);
-        expect(map.toPainter(15, end: true), 15 + g);
+        expect(map.toPainter(15), 15 + g);
+        expect(map.toPainter(15, end: true), 15 + pill.markerLength);
         expect(map.toRendered(5 + g), 5);
         expect(map.toRendered(4 + g), 4);
       });
@@ -128,8 +137,8 @@ void main() => group('Vacancy pill', () {
         final fills = block.painter.pillBoxes;
         expect(fills, hasLength(1));
         expect(fills.single.$2, _fill);
-        expect(fills.single.$1.left, lessThanOrEqualTo(title.left));
-        expect(fills.single.$1.right, greaterThanOrEqualTo(title.right));
+        expect(fills.single.$1.left, lessThanOrEqualTo(title.left + .01));
+        expect(fills.single.$1.right, greaterThanOrEqualTo(title.right - .01));
         block.dispose();
       });
 
@@ -162,7 +171,8 @@ void main() => group('Vacancy pill', () {
             ),
           ),
         );
-        final g = _pillOf(themed).children!.first as TextSpan;
+        final g =
+            _pillOf(themed).children!.whereType<MarkdownPillGlyphSpan>().single;
         expect(g.style!.fontFamily, 'packages/flutter_lucide/LucideIcons');
         expect(g.text, String.fromCharCode(0xe000));
       });
@@ -176,7 +186,7 @@ void main() => group('Vacancy pill', () {
         );
         final root = _build(theme);
         final pill = _pillOf(root);
-        final glyph = pill.children!.first as TextSpan;
+        final glyph = pill.children!.whereType<MarkdownPillGlyphSpan>().single;
         expect(glyph.text, String.fromCharCode(Icons.star.codePoint));
         expect(glyph.style!.fontSize, 18);
         expect(glyph.style!.letterSpacing, 4);
@@ -226,5 +236,117 @@ void main() => group('Vacancy pill', () {
 
       test('the selection tint is painted above the pill fill', () {
         expect(markdownSpansPaintOpaqueBackground(_spans()), isTrue);
+      });
+
+      group('real padding and margin', () {
+        const pad = 6.0;
+        const margin = 2.0;
+        MarkdownThemeData theme() => MarkdownThemeData(
+              textStyle: const TextStyle(fontSize: 14),
+              vacancyPillColor: _pill,
+              vacancyPillBackground: _fill,
+              vacancyPillHorizontalPadding: pad,
+              vacancyPillMargin: margin,
+            );
+
+        BlockPainter$Paragraph para(List<MD$Span> spans, double width) =>
+            BlockPainter$Paragraph(spans: spans, theme: theme())..layout(width);
+
+        MD$Span pillSpan(int start, String title) =>
+            MD$Span.vacancy(start: start, title: title, target: 'vref:$start');
+
+        // Painter offsets of one char: its box in the paragraph.
+        Rect box(BlockPainter$Paragraph b, int i) => b.painter
+            .getBoxesForSelection(
+                TextSelection(baseOffset: i, extentOffset: i + 1))
+            .first
+            .toRect();
+
+        test('word, fill and title are spaced by margin and padding', () {
+          final b = para([
+            const MD$Span(start: 0, end: 4, text: 'Hey '),
+            pillSpan(4, 'Dev'),
+            const MD$Span(start: 7, end: 8, text: ','),
+          ], 400);
+          final fill = b.painter.pillBoxes.single.$1;
+          final word = box(b, 3); // the space after Hey
+          // (a) preceding word's right edge to the fill: at least the margin.
+          expect(fill.left - word.right, greaterThanOrEqualTo(margin - .01));
+          // (b) fill edge to the title: at least the padding, both sides.
+          final text =
+              b.painter.text!.toPlainText(includeSemanticsLabels: false);
+          final t0 = text.indexOf('Dev');
+          final title = b.painter
+              .getBoxesForSelection(
+                  TextSelection(baseOffset: t0, extentOffset: t0 + 3))
+              .map((e) => e.toRect())
+              .reduce((a, c) => a.expandToInclude(c));
+          expect(title.left - fill.left, greaterThanOrEqualTo(pad - .01));
+          expect(fill.right - title.right, greaterThanOrEqualTo(pad - .01));
+          // (c) the comma starts at the fill's right edge plus the margin.
+          final comma = box(b, text.indexOf(','));
+          expect(comma.left - fill.right, closeTo(margin, .01));
+          b.dispose();
+        });
+
+        test('two pills separated by a comma do not touch', () {
+          final b = para([
+            pillSpan(0, 'Forte Mobile'),
+            const MD$Span(start: 12, end: 14, text: ', '),
+            pillSpan(14, 'Next'),
+          ], 600);
+          final fills = b.painter.pillBoxes;
+          expect(fills, hasLength(2));
+          final text =
+              b.painter.text!.toPlainText(includeSemanticsLabels: false);
+          final comma = box(b, text.indexOf(','));
+          expect(comma.left, greaterThanOrEqualTo(fills[0].$1.right));
+          expect(comma.right, lessThanOrEqualTo(fills[1].$1.left));
+          expect(fills[1].$1.left - fills[0].$1.right, greaterThan(2 * margin));
+          b.dispose();
+        });
+
+        test('copy and selection text stay the title', () {
+          final spans = [
+            const MD$Span(start: 0, end: 4, text: 'Hey '),
+            pillSpan(4, 'Dev'),
+            const MD$Span(start: 7, end: 8, text: ','),
+          ];
+          final b = para(spans, 400);
+          expect(b.renderedText, 'Hey Dev,');
+          // A range over the pill is the painter range of the title and the
+          // room around it; the offsets round-trip.
+          final map = MarkdownEmbedOffsets.of(b.painter);
+          final text =
+              b.painter.text!.toPlainText(includeSemanticsLabels: false);
+          expect(map.renderedText(text), 'Hey Dev,');
+          expect(map.toRendered(map.toPainter(4)), 4);
+          expect(map.toRendered(map.toPainter(7, end: true)), 7);
+          expect(map.toPainter(7, end: true), text.indexOf(','));
+          b.dispose();
+        });
+
+        test('a wrapped pill is padded at its real start and end only', () {
+          final b = para([
+            const MD$Span(start: 0, end: 4, text: 'Hey '),
+            pillSpan(4, 'Senior Flutter Developer wrapped title'),
+          ], 200);
+          final fills = b.painter.pillBoxes;
+          expect(fills.length, greaterThan(1));
+          final text =
+              b.painter.text!.toPlainText(includeSemanticsLabels: false);
+          final first = box(b, text.indexOf('Senior'));
+          expect(first.left - fills.first.$1.left, greaterThanOrEqualTo(pad));
+          final last = box(b, text.indexOf('title'));
+          final lastEnd = box(b, text.indexOf('title') + 4);
+          expect(last.left, greaterThanOrEqualTo(fills.last.$1.left));
+          expect(fills.last.$1.right - lastEnd.right,
+              greaterThanOrEqualTo(pad - .01));
+          // Middle lines run to the text edge: the fill starts at the line.
+          for (var i = 1; i < fills.length; i++) {
+            expect(fills[i].$1.left, greaterThanOrEqualTo(-.01));
+          }
+          b.dispose();
+        });
       });
     });

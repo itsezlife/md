@@ -14,7 +14,12 @@ final class MarkdownEmbedEntry {
     required this.renderedStart,
     required this.alt,
     this.painterLength = 1,
+    this.trailing = false,
   });
+
+  /// Whether this is room after a pill's content, which a selection that ends
+  /// at the pill's last character takes in.
+  final bool trailing;
 
   /// The placeholder span; null for a vacancy pill's icon glyph, which is a
   /// code unit of the painter's text that the rendered text does not have.
@@ -86,18 +91,20 @@ final class MarkdownEmbedOffsets {
     var shift = 0; // rendered minus painter offset, before the next embed.
     void walk(InlineSpan span) {
       switch (span) {
-        case MarkdownPillGlyphSpan():
-          // One code unit in the painter, none in the rendered text.
+        case MarkdownPillGlyphSpan() || MarkdownPillSpacerSpan():
+          // Code units in the painter, none in the rendered text.
+          final length = (span as TextSpan).text!.length;
           entries.add(MarkdownEmbedEntry._(
             span: null,
             placeholderIndex: -1,
             painterStart: painterOffset,
             renderedStart: painterOffset + shift,
             alt: '',
-            painterLength: span.text!.length,
+            painterLength: length,
+            trailing: span is MarkdownPillSpacerSpan && span.trailing,
           ));
-          shift -= span.text!.length;
-          painterOffset += span.text!.length;
+          shift -= length;
+          painterOffset += length;
         case TextSpan(:final text, :final children):
           painterOffset += text?.length ?? 0;
           if (children != null) children.forEach(walk);
@@ -187,7 +194,15 @@ final class MarkdownEmbedOffsets {
   int toPainter(int renderedOffset, {bool end = false}) {
     var shift = 0;
     for (final entry in entries) {
-      if (renderedOffset <= entry.renderedStart) break;
+      if (renderedOffset <= entry.renderedStart) {
+        // The end of a range at a pill's last character takes in its
+        // trailing room, so the selection tint is as even as the fill.
+        if (end && entry.trailing && renderedOffset == entry.renderedStart) {
+          shift += entry.shift;
+          continue;
+        }
+        break;
+      }
       if (renderedOffset < entry.renderedEnd) {
         return end ? entry.painterStart + 1 : entry.painterStart;
       }

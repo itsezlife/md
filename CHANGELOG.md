@@ -17,8 +17,17 @@ on it by git ref as described under 0.3.0's *Fork status*.
   `Icons.work_outline_rounded`), `vacancyPillRadius` (`double?`, default fully
   rounded), `vacancyPillIconSize` (`double?`, default the font size),
   `vacancyPillGap` (`double?`, default 0.3 em) and
-  `vacancyPillHorizontalPadding` (`double?`, default 0.3 em; paint only). All
+  `vacancyPillHorizontalPadding` (`double?`, default 0.3 em). All
   are in `copyWith` and `lerp`.
+- **CHANGED**: the pill's horizontal padding is real layout, not paint only:
+  zero-width code units (U+2062, letter-spaced) push the text inside the fill,
+  so the fill no longer overlaps the preceding word or a following comma. A
+  wrapped pill is padded at its real start and end only.
+- **ADDED**: `MarkdownThemeData.vacancyPillMargin` (`double?`, default 0): room
+  outside the fill on each side that the text flows past (a web `mx-0.5` is 2).
+  The room is painter text the rendered text does not have, like the icon, so
+  copy and selection still see the title; a selection that ends at the title
+  takes in the trailing room.
 
 ## 0.5.0
 

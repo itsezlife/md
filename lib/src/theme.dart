@@ -108,6 +108,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.vacancyPillIconSize,
     this.vacancyPillGap,
     this.vacancyPillHorizontalPadding,
+    this.vacancyPillMargin,
     this.surfaceColor = const Color.fromARGB(255, 235, 235, 235),
     this.highlightBackgroundColor = const Color(0x40FF5722),
     this.monospaceBackgroundColor = const Color(0x409E9E9E),
@@ -158,6 +159,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     double? vacancyPillIconSize,
     double? vacancyPillGap,
     double? vacancyPillHorizontalPadding,
+    double? vacancyPillMargin,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -204,6 +206,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       vacancyPillIconSize: vacancyPillIconSize,
       vacancyPillGap: vacancyPillGap,
       vacancyPillHorizontalPadding: vacancyPillHorizontalPadding,
+      vacancyPillMargin: vacancyPillMargin,
       surfaceColor: surfaceColor ?? theme.colorScheme.surfaceContainerHigh,
       highlightBackgroundColor:
           highlightBackgroundColor ?? theme.colorScheme.errorContainer,
@@ -310,9 +313,15 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// The gap between a vacancy pill's icon and title. When `null`, 0.3 em.
   final double? vacancyPillGap;
 
-  /// How far a vacancy pill's fill reaches past its icon and title on each
-  /// side. When `null`, 0.3 em. It is paint only: it does not move the text.
+  /// The room inside a vacancy pill's fill, before the icon and after the
+  /// title. When `null`, 0.3 em. It is layout: the text is pushed by it, so the
+  /// fill never overlaps a neighbouring glyph.
   final double? vacancyPillHorizontalPadding;
+
+  /// The room outside a vacancy pill's fill on each side, which the text
+  /// around it flows past (a comma after a pill starts this far from the
+  /// fill). When `null`, 0.
+  final double? vacancyPillMargin;
 
   /// The color to use for the background of the quote, block, table and etc.
   final Color? surfaceColor;
@@ -586,6 +595,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     double? vacancyPillIconSize,
     double? vacancyPillGap,
     double? vacancyPillHorizontalPadding,
+    double? vacancyPillMargin,
     Color? surfaceColor,
     Color? highlightBackgroundColor,
     Color? monospaceBackgroundColor,
@@ -650,6 +660,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       vacancyPillGap: vacancyPillGap ?? this.vacancyPillGap,
       vacancyPillHorizontalPadding:
           vacancyPillHorizontalPadding ?? this.vacancyPillHorizontalPadding,
+      vacancyPillMargin: vacancyPillMargin ?? this.vacancyPillMargin,
       surfaceColor: surfaceColor ?? this.surfaceColor,
       highlightBackgroundColor:
           highlightBackgroundColor ?? this.highlightBackgroundColor,
@@ -715,6 +726,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       vacancyPillGap: lerpDouble(vacancyPillGap, other?.vacancyPillGap, t),
       vacancyPillHorizontalPadding: lerpDouble(
           vacancyPillHorizontalPadding, other?.vacancyPillHorizontalPadding, t),
+      vacancyPillMargin:
+          lerpDouble(vacancyPillMargin, other?.vacancyPillMargin, t),
       surfaceColor: Color.lerp(surfaceColor, other?.surfaceColor, t),
       highlightBackgroundColor: Color.lerp(
           highlightBackgroundColor, other?.highlightBackgroundColor, t),

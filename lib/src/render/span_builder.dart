@@ -182,7 +182,7 @@ TextSpan paragraphFromMarkdownSpans({
     // A pill's icon is one more code unit of the painter's text.
     final end = offset +
         (child is MarkdownPillSpan
-            ? span.text.length + child.glyphLength
+            ? span.text.length + child.markerLength
             : child is TextSpan
                 ? span.text.length
                 : 1);

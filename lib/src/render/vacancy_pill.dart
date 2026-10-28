@@ -47,36 +47,112 @@ final class MarkdownPillGlyphSpan extends TextSpan {
         );
 }
 
-/// A vacancy pill: the icon run and the title run, and the fill painted behind
-/// both. The text of the title is the whole of the pill's rendered text.
+/// A run of room beside a vacancy pill's content: one zero-width code unit
+/// (U+2062 INVISIBLE TIMES) whose letter spacing is the room. Like the icon, it
+/// is painter text the rendered text (selection, copy) does not have.
+///
+/// The code unit is a format character (its own grapheme, so a selection edge
+/// can sit next to it) of the alphabetic line-break class: text may still wrap
+/// before the pill, and the run never splits from the pill's content. A
+/// combining mark (U+200C) would be glued to the previous glyph and make that
+/// glyph's selection box wrong.
+@meta.internal
+final class MarkdownPillSpacerSpan extends TextSpan {
+  /// Creates [width] of room; [trailing] is true after the pill's content.
+  MarkdownPillSpacerSpan({
+    required TextStyle style,
+    required double width,
+    required this.trailing,
+  }) : super(
+          text: '\u2062',
+          style: TextStyle(
+            inherit: false,
+            color: style.color,
+            fontSize: style.fontSize ?? kDefaultFontSize,
+            fontFamily: style.fontFamily,
+            fontWeight: style.fontWeight,
+            fontStyle: style.fontStyle,
+            height: style.height,
+            textBaseline: style.textBaseline,
+            leadingDistribution: style.leadingDistribution,
+            locale: style.locale,
+            letterSpacing: width,
+            decoration: TextDecoration.none,
+          ),
+        );
+
+  /// Whether the run follows the pill's content.
+  final bool trailing;
+}
+
+/// A vacancy pill: spacers, the icon run, the title run and spacers, and the
+/// fill painted behind icon and title (and the padding spacers between). The
+/// text of the title is the whole of the pill's rendered text.
 @meta.internal
 final class MarkdownPillSpan extends TextSpan {
   /// Creates a pill of [title] filled with [background].
-  MarkdownPillSpan({
+  factory MarkdownPillSpan({
     required String title,
     required TextStyle style,
-    required this.background,
-    required this.muted,
+    required Color background,
+    required bool muted,
     IconData? icon,
     double? iconSize,
     double? gap,
-    this.radius,
+    double? radius,
     double? horizontalPadding,
+    double? margin,
     GestureRecognizer? recognizer,
-  })  : padding =
-            horizontalPadding ?? (style.fontSize ?? kDefaultFontSize) * 0.3,
-        super(
-          children: <InlineSpan>[
-            MarkdownPillGlyphSpan(
-              style: style,
-              icon: icon ?? Icons.work_outline_rounded,
-              gap: gap,
-              size: iconSize,
-              recognizer: recognizer,
-            ),
-            TextSpan(text: title, style: style, recognizer: recognizer),
-          ],
-        );
+  }) {
+    final pad = horizontalPadding ?? (style.fontSize ?? kDefaultFontSize) * 0.3;
+    final mar = margin ?? 0;
+    MarkdownPillSpacerSpan spacer(double w, {required bool trailing}) =>
+        MarkdownPillSpacerSpan(style: style, width: w, trailing: trailing);
+    final lead = <TextSpan>[
+      if (mar > 0) spacer(mar, trailing: false),
+      if (pad > 0) spacer(pad, trailing: false),
+      MarkdownPillGlyphSpan(
+        style: style,
+        icon: icon ?? Icons.work_outline_rounded,
+        gap: gap,
+        size: iconSize,
+        recognizer: recognizer,
+      ),
+    ];
+    final trail = <TextSpan>[
+      if (pad > 0) spacer(pad, trailing: true),
+      if (mar > 0) spacer(mar, trailing: true),
+    ];
+    return MarkdownPillSpan._(
+      children: <InlineSpan>[
+        ...lead,
+        TextSpan(text: title, style: style, recognizer: recognizer),
+        ...trail,
+      ],
+      background: background,
+      muted: muted,
+      radius: radius,
+      padding: pad,
+      margin: mar,
+      leadLength: lead.fold(0, (n, c) => n + c.text!.length),
+      trailLength: trail.length,
+      leadMarginLength: mar > 0 ? 1 : 0,
+      glyphLength: lead.last.text!.length,
+    );
+  }
+
+  const MarkdownPillSpan._({
+    required List<InlineSpan> super.children,
+    required this.background,
+    required this.muted,
+    required this.radius,
+    required this.padding,
+    required this.margin,
+    required this.leadLength,
+    required this.trailLength,
+    required this.leadMarginLength,
+    required this.glyphLength,
+  });
 
   /// The fill behind the pill.
   final Color background;
@@ -87,11 +163,29 @@ final class MarkdownPillSpan extends TextSpan {
   /// The corner radius of the fill; null for fully rounded ends.
   final double? radius;
 
-  /// How far the fill reaches past the content on each side.
+  /// Room inside the fill, before the icon and after the title. Real layout:
+  /// the text is pushed by it.
   final double padding;
 
+  /// Room outside the fill on each side. Real layout, like [padding].
+  final double margin;
+
+  /// Code units of the painter's text before the title: margin and padding
+  /// room, and the icon.
+  final int leadLength;
+
+  /// Code units of the painter's text after the title: padding and margin room.
+  final int trailLength;
+
+  /// Code units of the leading margin room (0 or 1).
+  final int leadMarginLength;
+
   /// Code units the icon takes in the painter's text.
-  int get glyphLength => (children!.first as TextSpan).text!.length;
+  final int glyphLength;
+
+  /// Code units of the painter's text that the rendered text does not have:
+  /// everything but the title.
+  int get markerLength => leadLength + trailLength;
 }
 
 /// Builds the pill of a [MD$Style.vacancy] [span] in text of [style].
@@ -129,6 +223,7 @@ MarkdownPillSpan buildVacancyPill(
     gap: theme.vacancyPillGap,
     radius: theme.vacancyPillRadius,
     horizontalPadding: theme.vacancyPillHorizontalPadding,
+    margin: theme.vacancyPillMargin,
     recognizer: recognizer,
   );
 }
@@ -175,7 +270,12 @@ extension MarkdownPillPainter on TextPainter {
     final out = <(RRect, Color)>[];
     for (final (range, pill) in ranges) {
       final pad = pill.padding;
-      final split = range.start + pill.glyphLength;
+      // The fill reaches from the leading padding room to the trailing one;
+      // the margin rooms outside it are not filled.
+      final glyphStart =
+          range.start + pill.leadMarginLength + (pad > 0 ? 1 : 0);
+      final titleStart = range.start + pill.leadLength;
+      final titleEnd = range.end - pill.trailLength;
       List<Rect> rects(int from, int to) => getBoxesForSelection(
             TextSelection(baseOffset: from, extentOffset: to),
             boxHeightStyle: BoxHeightStyle.tight,
@@ -184,7 +284,7 @@ extension MarkdownPillPainter on TextPainter {
       // text widens a fill but never grows it into the lines around it.
       // Boxes of one line are told apart by their centre, not by an equal top.
       final lines = <Rect>[];
-      for (final rect in rects(split, range.end)) {
+      for (final rect in rects(titleStart, titleEnd)) {
         final i = lines.indexWhere(
           (l) => rect.center.dy >= l.top && rect.center.dy <= l.bottom,
         );
@@ -195,7 +295,7 @@ extension MarkdownPillPainter on TextPainter {
         }
       }
       if (lines.isEmpty) continue;
-      for (final glyph in rects(range.start, split)) {
+      for (final glyph in rects(glyphStart, titleStart)) {
         final i = lines.indexWhere(
           (l) => glyph.center.dy >= l.top && glyph.center.dy <= l.bottom,
         );
@@ -208,9 +308,16 @@ extension MarkdownPillPainter on TextPainter {
           l.bottom,
         );
       }
-      for (final r in lines) {
-        final rect =
-            Rect.fromLTRB(r.left - pad, r.top, r.right + pad, r.bottom);
+      // The padding is real room, at the pill's own start and end only: a
+      // line a wrap cuts short has the fill run to its edge.
+      for (var i = 0; i < lines.length; i++) {
+        final r = lines[i];
+        final rect = Rect.fromLTRB(
+          i == 0 ? r.left - pad : r.left,
+          r.top,
+          i == lines.length - 1 ? r.right + pad : r.right,
+          r.bottom,
+        );
         final radius = pill.radius == null
             ? rect.height / 2
             : pill.radius!.clamp(0.0, rect.height / 2);
