@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_md/flutter_md.dart';
 
@@ -32,6 +33,21 @@ And a table — its cells are selectable too:
 void main() => print('selectable code block');
 ```
 
+## Pictures and spoilers
+
+An inline picture ![Flutter](https://avatars.githubusercontent.com/u/14101776?s=48)
+sits in the line and selects, highlights and copies as its alt text, whole. A
+link gets the site's icon in front of its label:
+[flutter.dev](https://flutter.dev).
+
+![Flutter logo](https://avatars.githubusercontent.com/u/14101776?s=200)
+
+The ending is ||hidden under a spoiler||: tap it to reveal, or drag a selection
+across it — the selection reveals the document too.
+
+- a list item with ||a secret|| inside
+- a picture in a list ![Dart](https://avatars.githubusercontent.com/u/1609975?s=48)
+
 > [!TIP]
 > Selecting Markdown clears the plain `SelectableText` below, and vice-versa.''';
 
@@ -60,6 +76,11 @@ const MarkdownMarkupFormatter _markupFormatter = MarkdownMarkupFormatter();
 /// Demonstrates cross-block selection within a single [MarkdownWidget], several
 /// independent controllers that reset one another via a shared
 /// [MarkdownSelectionGroup], and coordination with a plain `SelectableText`.
+///
+/// Document A also holds pictures (the app theme's `imageResolver`) and
+/// spoilers: a [MarkdownSpoilerController] whose dust a [Ticker] drives while
+/// [MarkdownSpoilerController.wantsTicks] is true, revealed by a tap or by a
+/// selection that reaches a spoiler.
 class LoremTab extends StatefulWidget {
   /// Creates the lorem-ipsum selection demo tab.
   const LoremTab({super.key});
@@ -68,7 +89,8 @@ class LoremTab extends StatefulWidget {
   State<LoremTab> createState() => _LoremTabState();
 }
 
-class _LoremTabState extends State<LoremTab> {
+class _LoremTabState extends State<LoremTab>
+    with SingleTickerProviderStateMixin {
   final MarkdownSelectionGroup _group = MarkdownSelectionGroup();
   late final MarkdownSelectionController _a = MarkdownSelectionController(
     group: _group,
@@ -78,6 +100,12 @@ class _LoremTabState extends State<LoremTab> {
   );
   final Markdown _docA = Markdown.fromString(_loremMdA);
   final Markdown _docB = Markdown.fromString(_loremMdB);
+
+  /// Which documents have their spoilers revealed. The package owns no clock
+  /// for the dust: [_dust] feeds it, and only runs while a hidden spoiler is
+  /// mounted.
+  final MarkdownSpoilerController _spoilers = MarkdownSpoilerController();
+  late final Ticker _dust = createTicker(_spoilers.advance);
 
   // Bumping this key recreates the SelectionArea, clearing its selection when a
   // Markdown selection starts (the Markdown -> plain direction of the reset).
@@ -95,12 +123,53 @@ class _LoremTabState extends State<LoremTab> {
     ]);
     _a.addListener(_onMarkdownSelection);
     _b.addListener(_onMarkdownSelection);
+    _spoilers.wantsTicks.addListener(_syncDust);
+  }
+
+  void _syncDust() {
+    final wants = _spoilers.wantsTicks.value;
+    if (wants && !_dust.isActive) {
+      _dust.start();
+    } else if (!wants && _dust.isActive) {
+      _dust.stop();
+    }
+  }
+
+  /// Reveals a document once a selection reaches one of its spoilers: the
+  /// package leaves that to the host ([MarkdownSpoilerController.reveal] with
+  /// no origin ripples from the middle of the spoilers).
+  void _revealSelectedSpoilers(MarkdownSelectionController controller) {
+    for (final document in controller.selectedContent().documents) {
+      if (_spoilers.isRevealed(document.documentId)) continue;
+      if (document.blocks.any(_touchesSpoiler)) {
+        _spoilers.reveal(document.documentId);
+      }
+    }
+  }
+
+  /// Whether [selected] covers a spoiler. Exact for a paragraph or a heading,
+  /// whose span offsets index the rendered text; any spoiler in a list counts.
+  static bool _touchesSpoiler(MarkdownSelectedBlock selected) {
+    bool isSpoiler(MD$Span span) => span.style.contains(MD$Style.spoiler);
+    bool inItems(List<MD$ListItem> items) => items.any(
+      (item) => item.spans.any(isSpoiler) || inItems(item.children),
+    );
+    final range = selected.renderedRange;
+    return switch (selected.block) {
+      MD$Paragraph(:final spans) || MD$Heading(:final spans) => spans.any(
+        (span) =>
+            isSpoiler(span) && span.start < range.end && range.start < span.end,
+      ),
+      MD$List(:final items) => inItems(items),
+      _ => false,
+    };
   }
 
   bool _isActive(MarkdownSelectionController c) =>
       c.selection != null && !c.selection!.isCollapsed;
 
   void _onMarkdownSelection() {
+    if (_isActive(_a)) _revealSelectedSpoilers(_a);
     final active = _isActive(_a) || _isActive(_b);
     setState(() {
       if (active && !_mdActive) _plainEpoch++; // clear the plain SelectableText
@@ -110,6 +179,9 @@ class _LoremTabState extends State<LoremTab> {
 
   @override
   void dispose() {
+    _spoilers.wantsTicks.removeListener(_syncDust);
+    _dust.dispose();
+    _spoilers.dispose();
     _a
       ..removeListener(_onMarkdownSelection)
       ..dispose();
@@ -281,7 +353,11 @@ class _LoremTabState extends State<LoremTab> {
               MarkdownSelectionScope(
                 controller: _a,
                 contextMenuBuilder: _loudContextMenu,
-                child: MarkdownWidget(markdown: _docA, documentId: 'A'),
+                child: MarkdownWidget(
+                  markdown: _docA,
+                  documentId: 'A',
+                  spoilerController: _spoilers,
+                ),
               ),
               const Divider(height: 40),
               _label(

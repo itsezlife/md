@@ -52,6 +52,12 @@ The release tag is `v0.7.0`; depend on it by git ref as described under
   column is on the right.
 - **CHANGED**: `boxesForRange` keeps the fork's one rectangle per line, link
   icons included.
+- **ADDED**: the example's Selection tab shows pictures, a link icon and
+  spoilers: a `MarkdownSpoilerController` with a `Ticker` dust clock, revealed
+  by a tap or by a selection that reaches a spoiler.
+- **CHANGED**: goldens are kept per host OS (`goldens/` for macOS,
+  `goldens/linux/` for CI, see `docs/development.md`); the fork's goldens had
+  only a macOS set, so they failed on the Linux runner.
 - **KEPT**: `clampMarkdownToLines` / `MarkdownLineClamp` and
   `MarkdownPainter.textLineBottoms`, which upstream moved to a branch.
 - **CHANGED**: the right-to-left embed and selection goldens moved to the
