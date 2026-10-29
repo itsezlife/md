@@ -1,3 +1,17 @@
+## 0.7.1
+
+A selection cleared while a `MarkdownSelectionScope` was being torn down threw.
+The release tag is `v0.7.1`; depend on it by git ref as described under
+0.3.0's *Fork status*.
+
+### Selection
+- **FIXED**: "Looking up a deactivated widget's ancestor is unsafe" from the
+  scope's controller listener. Upstream 0.3.0 made that listener read
+  `Theme.of(context)` on every clear (to keep a desktop right-click menu open),
+  and a host that clears or re-registers documents from a widget's `dispose`
+  (a chat body leaving the list) notifies while the scope above it is
+  deactivated. The scope now reads the platform in `didChangeDependencies`.
+
 ## 0.7.0
 
 Merges upstream `DoctorinaAI/md` `0.3.0` into the fork. The upstream release
