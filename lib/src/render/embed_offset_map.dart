@@ -1,8 +1,9 @@
 import 'package:flutter/painting.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
-import 'inline_embeds.dart';
 import 'chip.dart';
+import 'inline_embeds.dart';
+import 'inline_image.dart';
 
 /// Where one embed sits in a paragraph, in both offset spaces.
 @meta.internal
@@ -13,6 +14,7 @@ final class MarkdownEmbedEntry {
     required this.painterStart,
     required this.renderedStart,
     required this.alt,
+    this.image,
     this.painterLength = 1,
     this.trailing = false,
   });
@@ -24,6 +26,14 @@ final class MarkdownEmbedEntry {
   /// The placeholder span; null for a chip's glyph, which is a
   /// code unit of the painter's text that the rendered text does not have.
   final MarkdownEmbedSpan? span;
+
+  /// The picture slot (an image or a link icon, see [MarkdownImageSpan]);
+  /// null for an embed or a chip glyph.
+  final MarkdownImageSpan? image;
+
+  /// Whether the entry is a placeholder of the painter's text (an embed or a
+  /// picture), with a box in `TextPainter.inlinePlaceholderBoxes`.
+  bool get isPlaceholder => span != null || image != null;
 
   /// Index of the placeholder among the paragraph's placeholders, which is
   /// its index in `TextPainter.inlinePlaceholderBoxes`.
@@ -117,6 +127,18 @@ final class MarkdownEmbedOffsets {
             alt: span.target.alt,
           ));
           shift += span.target.alt.length - 1;
+          placeholders++;
+          painterOffset++;
+        case MarkdownImageSpan(:final modelText):
+          entries.add(MarkdownEmbedEntry._(
+            span: null,
+            image: span,
+            placeholderIndex: placeholders,
+            painterStart: painterOffset,
+            renderedStart: painterOffset + shift,
+            alt: modelText,
+          ));
+          shift += modelText.length - 1;
           placeholders++;
           painterOffset++;
         case PlaceholderSpan():
@@ -221,10 +243,13 @@ final class MarkdownEmbedOffsets {
     final boxes = painter.inlinePlaceholderBoxes;
     if (boxes == null) return null;
     for (final entry in entries) {
-      final span = entry.span;
-      if (span == null || entry.placeholderIndex >= boxes.length) continue;
+      if (!entry.isPlaceholder || entry.placeholderIndex >= boxes.length) {
+        continue;
+      }
       final box = boxes[entry.placeholderIndex].toRect();
-      if (box.contains(local) || span.paintRectFor(box).contains(local)) {
+      if (box.contains(local)) return entry;
+      final span = entry.span;
+      if (span != null && span.paintRectFor(box).contains(local)) {
         return entry;
       }
     }

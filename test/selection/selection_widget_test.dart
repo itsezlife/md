@@ -606,9 +606,9 @@ void main() {
       'expand drag keeps toolbar hidden across scroll even if toolbarWanted '
       'is re-armed mid-drag',
       (tester) async {
-        // Hosts may restore a clamped same-document range via the public
-        // selection setter (which arms toolbarWanted on mobile). Autoscroll
-        // scroll notifications must not re-present the menu until drag end.
+        // Hosts may restore a clamped same-document range via paths that arm
+        // toolbarWanted on mobile. Autoscroll scroll notifications must not
+        // re-present the menu until drag end.
         final scrollController = ScrollController();
         addTearDown(scrollController.dispose);
         final controller = MarkdownSelectionController()

@@ -766,11 +766,14 @@ $wideTable
     expect(painter.canPanHorizontally, isTrue);
     expect(painter.scrollOffset, 0);
 
-    // Viewport x=0 should hit near the right edge of the content.
-    final atLeading = painter.offsetForLocalPosition(Offset.zero);
+    // Offset 0 shows the leading (right) edge, where the first column sits:
+    // the viewport's right edge is early text. A full pan brings the last
+    // column, the latest text, to the viewport's left edge.
+    final atLeading =
+        painter.offsetForLocalPosition(Offset(painter.size.width - 1, 1));
     painter.applyScrollDelta(painter.maxScrollExtent);
-    final atTrailing = painter.offsetForLocalPosition(Offset.zero);
-    expect(atLeading, greaterThan(atTrailing));
+    final atTrailing = painter.offsetForLocalPosition(const Offset(1, 1));
+    expect(atLeading, lessThan(atTrailing));
     painter.dispose();
   });
 

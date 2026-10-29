@@ -14,6 +14,7 @@ import '../../nodes.dart';
 import '../../theme.dart';
 import '../block_painter.dart';
 import '../inline_embeds.dart';
+import '../inline_image.dart';
 import '../span_builder.dart';
 
 /// A helper class to store layout information for a single list item.
@@ -22,11 +23,17 @@ class _ListItemMetrics {
     required this.bulletPainter,
     required this.contentPainter,
     required this.offset,
+    required this.contentOffset,
   });
 
   final TextPainter bulletPainter;
   final TextPainter contentPainter;
+
+  /// Block-local top-left of the bullet.
   final Offset offset;
+
+  /// Block-local top-left of the item content.
+  final Offset contentOffset;
 
   late final double height =
       math.max(bulletPainter.height, contentPainter.height);
@@ -51,15 +58,16 @@ class BlockPainter$List
     this.inlineEmbeds,
   })  : _items = items,
         _painters = <_ListItemMetrics>[],
-        _selectionHighlightAboveCachedContent =
-            _listItemsPaintOpaqueBackground(items);
+        _fills = _listItemsPaintOpaqueBackground(items);
 
   /// Inline monospace/highlight fills in item text live in the content
   /// [Picture].
   @override
-  bool get selectionHighlightAboveCachedContent =>
-      _selectionHighlightAboveCachedContent;
-  final bool _selectionHighlightAboveCachedContent;
+  bool get selectionHighlightAboveCachedContent => _fills || _hasImages;
+  final bool _fills;
+
+  /// Whether the laid-out item text holds a picture.
+  bool _hasImages = false;
 
   static bool _listItemsPaintOpaqueBackground(List<MD$ListItem> items) {
     for (final item in items) {
@@ -105,14 +113,13 @@ class BlockPainter$List
 
   InlineSpan? _getSpanForPosition(Offset localPosition) {
     for (final metrics in _painters) {
-      final contentOffset =
-          metrics.offset + Offset(metrics.bulletPainter.width, 0);
+      final contentOffset = metrics.contentOffset;
       final contentRect = contentOffset & metrics.contentPainter.size;
       if (contentRect.contains(localPosition)) {
-        final painterPosition = localPosition - contentOffset;
-        final textPosition =
-            metrics.contentPainter.getPositionForOffset(painterPosition);
-        return metrics.contentPainter.text?.getSpanForPosition(textPosition);
+        return markdownSpanAtLocal(
+          metrics.contentPainter,
+          localPosition - contentOffset,
+        );
       }
     }
     return null;
@@ -129,9 +136,9 @@ class BlockPainter$List
     if (_lastSpan == null) return; // No span was hit on tap down.
     final newSpan = _getSpanForPosition(event.localPosition);
     if (newSpan != null && _lastSpan == newSpan) {
-      if (newSpan
-          case TextSpan(recognizer: final TapGestureRecognizer recognizer)) {
-        recognizer.onTap?.call();
+      if (markdownSpanRecognizer(newSpan)
+          case TapGestureRecognizer(:final onTap)) {
+        onTap?.call();
       }
     }
 
@@ -144,6 +151,8 @@ class BlockPainter$List
 
     double currentHeight = 0;
     double maxContentWidth = 0;
+    // Right-to-left lists put the bullet on the right, content to its left.
+    final rtl = theme.textDirection == TextDirection.rtl && width.isFinite;
 
     void layoutItems(List<MD$ListItem> items, int level) {
       final indent = _baseIndent + level * _levelIndent;
@@ -172,12 +181,24 @@ class BlockPainter$List
           ),
           textDirection: theme.textDirection,
           textScaler: theme.textScaler,
-        )..layout(maxWidth: math.max(0, width - indent - bulletPainter.width));
+        );
+        layoutMarkdownText(
+          contentPainter,
+          maxWidth: math.max(0, width - indent - bulletPainter.width),
+        );
+        _hasImages = _hasImages || markdownSpanHasImages(contentPainter.text);
 
+        final bulletX = rtl ? width - indent - bulletPainter.width : indent;
         final metrics = _ListItemMetrics(
           bulletPainter: bulletPainter,
           contentPainter: contentPainter,
-          offset: Offset(indent, currentHeight),
+          offset: Offset(bulletX, currentHeight),
+          contentOffset: Offset(
+            rtl
+                ? math.max(bulletX - contentPainter.width, 0)
+                : indent + bulletPainter.width,
+            currentHeight,
+          ),
         );
         _painters.add(metrics);
 
@@ -203,11 +224,12 @@ class BlockPainter$List
     var textPos = 0;
     for (final metrics in _painters) {
       if (frags.isNotEmpty) textPos += 1; // the '\n' item separator
-      final origin = metrics.offset + Offset(metrics.bulletPainter.width, 0);
-      final fragment =
-          SelectableFragment(metrics.contentPainter, origin, textPos);
-      frags.add(fragment);
-      textPos += fragment.length;
+      frags.add(SelectableFragment(
+        metrics.contentPainter,
+        metrics.contentOffset,
+        textPos,
+      ));
+      textPos += markdownModelText(metrics.contentPainter).length;
     }
     _fragments = frags;
     _renderedText = frags.map((f) => f.renderedText).join('\n');
@@ -215,13 +237,14 @@ class BlockPainter$List
 
   @override
   void paint(Canvas canvas, Size size, double offset) {
+    final dy = Offset(0, offset);
     for (final metrics in _painters) {
-      final bulletOffset = metrics.offset + Offset(0, offset);
-      metrics.bulletPainter.paint(canvas, bulletOffset);
-
-      final contentOffset =
-          bulletOffset + Offset(metrics.bulletPainter.width, 0);
-      metrics.contentPainter.paintWithChips(canvas, contentOffset);
+      metrics.bulletPainter.paint(canvas, metrics.offset + dy);
+      paintMarkdownText(
+        metrics.contentPainter,
+        canvas,
+        metrics.contentOffset + dy,
+      );
     }
   }
 
@@ -233,6 +256,7 @@ class BlockPainter$List
       metrics.dispose();
     }
     _painters.clear();
+    _hasImages = false;
   }
 
   @override

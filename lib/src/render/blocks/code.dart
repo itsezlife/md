@@ -33,7 +33,8 @@ class BlockPainter$Code with SelectableTextBlock implements BlockPainter {
         painter = TextPainter(
           text: _buildSpan(text, language, theme),
           textAlign: TextAlign.start,
-          textDirection: theme.textDirection,
+          // Code reads left-to-right even inside right-to-left documents.
+          textDirection: TextDirection.ltr,
           textScaler: theme.textScaler,
         );
 
@@ -76,6 +77,22 @@ class BlockPainter$Code with SelectableTextBlock implements BlockPainter {
   Size _size = Size.zero;
 
   @override
+  List<Rect> boxesForRange(int start, int end) =>
+      _size.isEmpty ? const <Rect>[] : super.boxesForRange(start, end);
+
+  @override
+  bool hitsRenderedTextAt(Offset local) =>
+      !_size.isEmpty && super.hitsRenderedTextAt(local);
+
+  @override
+  bool isLinkAtLocal(Offset local) =>
+      !_size.isEmpty && super.isLinkAtLocal(local);
+
+  @override
+  Rect caretRectFor(int offset, TextAffinity affinity) =>
+      _size.isEmpty ? Rect.zero : super.caretRectFor(offset, affinity);
+
+  @override
   void handleTapDown(PointerDownEvent _) {/* Do nothing */}
 
   @override
@@ -84,7 +101,11 @@ class BlockPainter$Code with SelectableTextBlock implements BlockPainter {
   @override
   Size layout(double width) {
     if (width <= padding * 2) {
-      // If the width is less than or equal to padding, return zero size.
+      // Too narrow for the padding: the block takes no space and paints
+      // nothing. The painter is still laid out (unconstrained, so a long fence
+      // does not wrap per glyph) so caret / position queries stay valid, but
+      // the selection overrides below keep it inert.
+      painter.layout();
       _size = Size.zero;
       return _size;
     }
@@ -100,8 +121,10 @@ class BlockPainter$Code with SelectableTextBlock implements BlockPainter {
 
   @override
   void paint(Canvas canvas, Size size, double offset) {
-    // If the width is less than required do not paint anything.
-    if (size.width < _size.width) return;
+    // If the width is less than required do not paint anything. An empty size
+    // means [layout] was too narrow for the padding and skipped laying out
+    // the text, which must then not be painted either.
+    if (_size.isEmpty || size.width < _size.width) return;
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         Rect.fromLTWH(0, offset, size.width, _size.height),
