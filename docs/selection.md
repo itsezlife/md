@@ -64,8 +64,14 @@ drags. `_reindex` runs on set/order changes only, not on model-only updates.
 `abstract interface class MarkdownSelectionSurface` is the controller's window
 onto a live render object, **implemented by `MarkdownRenderObject`**:
 
-- `documentId`, `Rect globalBounds`
+- `documentId`, `Rect globalBounds`, `TextDirection textDirection` (per-document
+  handle orientation)
 - `MarkdownPosition? positionForGlobal(Offset)` — global point → logical position
+- `hitForGlobal(Offset)` — the same plus the soft-wrap `TextAffinity`
+- `hitsSelectableGlyphs(Offset)` / `isLinkAtGlobal(Offset)` — glyph-tight
+  hover tests (I-beam / link cursor)
+- `caretRectFor(MarkdownPosition, TextAffinity)` — content-local caret rect
+  (handle placement)
 - `List<Rect> globalSelectionRects()` / `localSelectionRects()` — highlight rects
   (screen / content-local); used for handles, magnifier, toolbar anchor
 - `localBoxesForRange(int blockIndex, int startOffset, int endOffset)` —
@@ -78,8 +84,10 @@ onto a live render object, **implemented by `MarkdownRenderObject`**:
   when they reference those links (sibling scopes sharing a controller)
 - `repaintSelection()` — repaint just the highlight; safe during build
 
-The controller keeps a `Map<Object, MarkdownSelectionSurface>` keyed by
-`documentId`; render objects `attachSurface`/`detachSurface` on attach/detach.
+The controller keeps a `Map<Object, List<MarkdownSelectionSurface>>` keyed by
+`documentId` (a stack: the first mounted surface for an id wins, so a brief
+dual mount during a list recycle is harmless); render objects
+`attachSurface`/`detachSurface` on attach/detach.
 On attach (and when the controller / model is wired while already attached),
 `MarkdownRenderObject` also `putDocument`s its current model so a mounted surface
 is never missing from the registry (heals races where geometry attaches before
@@ -160,7 +168,7 @@ block painter's `renderedText`/fragment offsets **must** match it:
 
 A resolved image span is one U+FFFC code unit in the `TextPainter`'s text while
 `markdownBlockRenderedText` has its alt text (any number of code units). The
-block painter mixins bridge the two with `MarkdownEmbedOffsets`, so
+block painter mixins bridge the two with `MarkdownTextOffsets`, so
 `renderedText`, `positionAndAffinityForLocal`, `caretRectFor`, `boxesForRange`
 and `wordBoundaryForLocal` still speak rendered offsets; extraction never reads
 a painter. The alt text is **atomic**, and the controller enforces it on the

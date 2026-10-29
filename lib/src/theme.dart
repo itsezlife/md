@@ -116,6 +116,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.cursorResolver,
     this.emojiRuns,
     this.emojiScale = 1,
+    this.imageResolver,
   })  : assert(emojiScale > 0, 'emojiScale must be positive'),
         monospaceFontFamily = monospaceFontFamily ??
             _defaultMonospaceFontFamily(defaultTargetPlatform),
@@ -158,6 +159,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     MarkdownCursorResolver? cursorResolver,
     MarkdownEmojiRuns? emojiRuns,
     double emojiScale = 1,
+    MarkdownImageResolver? imageResolver,
   }) {
     return MarkdownThemeData(
       textStyle: textStyle ??
@@ -202,6 +204,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       cursorResolver: cursorResolver,
       emojiRuns: emojiRuns,
       emojiScale: emojiScale,
+      imageResolver: imageResolver,
     );
   }
 
@@ -404,6 +407,19 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// inline embeds use 1.2. Only read when [emojiRuns] is set.
   final double emojiScale;
 
+  /// Resolves the pictures shown inline: `![alt](src)` images and, when the
+  /// resolver returns one, an icon in front of each link (a site favicon).
+  ///
+  /// When `null` (the default), or when the resolver returns `null` for a
+  /// request, an image renders as its alt text and a link as its bare label.
+  /// [MarkdownProviderImageResolver] is a ready-made resolver backed by
+  /// [ImageProvider]s; return your own [MarkdownImage] to control loading,
+  /// caching and painting.
+  ///
+  /// Keep the resolver stable (a `const` resolver, or one stored outside
+  /// `build`): a different resolver drops every picture already loaded.
+  final MarkdownImageResolver? imageResolver;
+
   final List<TextStyle?> _headingStyles;
 
   /// Returns a [TextStyle] for the given heading level.
@@ -504,8 +520,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
   /// a callback, pass its `clear*` flag: [clearOnLinkTap], [clearOnMentionTap],
   /// [clearOnChipTap],
   /// [clearBlockFilter], [clearSpanFilter], [clearBuilder],
-  /// [clearCursorResolver] or [clearEmojiRuns]. A flag and a new value for the
-  /// same callback are mutually exclusive.
+  /// [clearCursorResolver], [clearEmojiRuns] or [clearImageResolver]. A flag
+  /// and a new value for the same callback are mutually exclusive.
   @override
   MarkdownThemeData copyWith({
     TextDirection? textDirection,
@@ -539,6 +555,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     MarkdownCursorResolver? cursorResolver,
     MarkdownEmojiRuns? emojiRuns,
     double? emojiScale,
+    MarkdownImageResolver? imageResolver,
     bool clearBlockFilter = false,
     bool clearSpanFilter = false,
     bool clearBuilder = false,
@@ -547,6 +564,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     bool clearOnChipTap = false,
     bool clearCursorResolver = false,
     bool clearEmojiRuns = false,
+    bool clearImageResolver = false,
   }) {
     assert(
       !(clearBlockFilter && blockFilter != null) &&
@@ -556,7 +574,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
           !(clearOnMentionTap && onMentionTap != null) &&
           !(clearOnChipTap && onChipTap != null) &&
           !(clearCursorResolver && cursorResolver != null) &&
-          !(clearEmojiRuns && emojiRuns != null),
+          !(clearEmojiRuns && emojiRuns != null) &&
+          !(clearImageResolver && imageResolver != null),
       'Pass either a callback or its clear flag, not both.',
     );
     return MarkdownThemeData(
@@ -596,6 +615,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
           clearCursorResolver ? null : cursorResolver ?? this.cursorResolver,
       emojiRuns: clearEmojiRuns ? null : emojiRuns ?? this.emojiRuns,
       emojiScale: emojiScale ?? this.emojiScale,
+      imageResolver:
+          clearImageResolver ? null : imageResolver ?? this.imageResolver,
     );
   }
 
@@ -647,6 +668,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       cursorResolver: t < 0.5 ? cursorResolver : other?.cursorResolver,
       emojiRuns: t < 0.5 ? emojiRuns : other?.emojiRuns,
       emojiScale: t < 0.5 ? emojiScale : other?.emojiScale ?? emojiScale,
+      imageResolver: t < 0.5 ? imageResolver : other?.imageResolver,
     );
   }
 

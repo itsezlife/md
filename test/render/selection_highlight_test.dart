@@ -8,6 +8,8 @@ import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render/markdown_render_object.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../golden_comparator.dart';
+
 /// The selection highlight reads as one patch per line, whatever it covers
 /// (text, an emoji run drawn larger than the text, an inline embed): the same
 /// top and bottom, no seams between neighbours, behind everything it covers.
@@ -497,7 +499,7 @@ void main() {
       late GoldenFileComparator previous;
       setUpAll(() {
         previous = goldenFileComparator;
-        goldenFileComparator = LocalFileComparator(
+        goldenFileComparator = PlatformGoldenComparator(
           Uri.file(
             '${Directory.current.path}/test/render/'
             'selection_highlight_test.dart',

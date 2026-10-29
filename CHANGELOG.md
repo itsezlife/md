@@ -1,3 +1,70 @@
+## 0.7.0
+
+Merges upstream `DoctorinaAI/md` `0.3.0` into the fork. The upstream release
+notes are in its `0.3.0` changelog and
+[docs/migration/0.2.x-to-0.3.x.md](docs/migration/0.2.x-to-0.3.x.md); what
+follows is what the fork gains and where the two lines had to be reconciled.
+The release tag is `v0.7.0`; depend on it by git ref as described under
+0.3.0's *Fork status*.
+
+### From upstream
+- **ADDED**: inline images and link icons through
+  `MarkdownThemeData.imageResolver` (`MarkdownImage`, `MarkdownImageResolver`,
+  `MarkdownProviderImage`, `MarkdownProviderImageResolver`,
+  `MarkdownImageSpan`, `layoutMarkdownText`, `paintMarkdownText`). Opt-in:
+  without a resolver an image is its alt text, as before. `copyWith` clears the
+  resolver with `clearImageResolver`, like the fork's other callbacks.
+- **FIXED**: right-to-left layout. Paragraphs, headings, lists, quotes, alerts
+  and tables sit against the right edge; a too-wide table overflows to the
+  left; selection handles orient by the text they sit on; a dry layout no
+  longer leaves its measured positions behind.
+- **FIXED**: syntax highlighting: greedy rules match across earlier tokens,
+  tokenizing is linear, and the GitHub themes colour diffs.
+- **FIXED**: list items at uneven indents are kept; fenced code in quotes and
+  alerts parses as nested blocks in more spellings (indented, nested quotes);
+  nested quote / alert children route through `MarkdownThemeData.builder` and
+  open their links. `BlockPainter$Quote` / `$Alert` take `blocks:`.
+- **FIXED**: selection: the desktop context menu survives an overlay sync,
+  chrome resets when a reconcile changes the selection, the registry write of
+  a recycled element lands on the incoming document id.
+
+### Reconciled
+- **CHANGED**: one offset map for every placeholder. The fork's map, renamed
+  `MarkdownTextOffsets` (`text_offset_map.dart`, `@meta.internal`; it was
+  `MarkdownEmbedOffsets`), now also maps pictures and link icons, and
+  upstream's model ↔ painter helpers (`markdownModelText`,
+  `markdownPainterOffset`, …) read it, so embeds, pictures and chip glyphs
+  agree in one paragraph. The rendered text is built once per laid-out text,
+  as upstream's map did, and a picture's alt text is atomic in the controller
+  like an embed's, so a keyboard step no longer stops inside it (upstream's
+  known limitation). A picture keeps
+  upstream's hit rule (the edge on the hit side); an embed keeps the fork's
+  (inside its alt text).
+- **CHANGED**: `paintMarkdownText` paints chip fills and glyphs too
+  (`paintWithChips` paints pictures), so either call draws the whole text.
+- **CHANGED**: an inline embed wins over a picture for the same image, and
+  nothing inside a `||spoiler||` becomes a picture or gets a link icon: a
+  hidden spoiler conceals text by colour, which a picture is not.
+- **CHANGED**: a pannable table (`BlockPainter$ScrollableTable`) that
+  overflows keeps its content space from 0 in right-to-left text; its pan
+  shows the leading edge. A table that does not pan uses upstream's RTL
+  overflow to the left. RTL table columns are now mirrored, so the first
+  column is on the right.
+- **CHANGED**: `boxesForRange` keeps the fork's one rectangle per line, link
+  icons included.
+- **ADDED**: the example's Selection tab shows pictures, a link icon and
+  spoilers: a `MarkdownSpoilerController` with a `Ticker` dust clock, revealed
+  by a tap or by a selection that reaches a spoiler.
+- **CHANGED**: goldens are kept per host OS (`goldens/` for macOS,
+  `goldens/linux/` for CI, see `docs/development.md`); the fork's goldens had
+  only a macOS set, so they failed on the Linux runner.
+- **KEPT**: `clampMarkdownToLines` / `MarkdownLineClamp` and
+  `MarkdownPainter.textLineBottoms`, which upstream moved to a branch.
+- **CHANGED**: the right-to-left embed and selection goldens moved to the
+  right edge with the RTL fix. Upstream's new tests that assert copied text
+  read it through `MarkdownSelectionFormatter.plain`, since the fork copies
+  markdown source by default.
+
 ## 0.6.0
 
 The inline chip is one style object, has no glyph unless a host asks for one,
@@ -520,7 +587,11 @@ extension points or reach into a default block painter's fields. Ordinary
 - **FIXED**: Fenced code (` ```lang ` / `~~~`) inside a blockquote or GitHub
   alert is re-parsed as nested `MD$Code` in `MD$Quote.blocks` /
   `MD$Alert.blocks`, instead of being consumed as inline monospace by backtick
-  pairing (` `` ` + monospace + ` `` `).
+  pairing (` `` ` + monospace + ` `` `). The fenced code keeps its
+  indentation, fences inside nested quotes (`> > ```…`) are nested code too,
+  and a fence may follow the `>` after up to three spaces or a tab (lines
+  inside the code keep their indentation verbatim). Blank `>` lines around an
+  alert body add no extra gap.
 - **ADDED**: Optional `blocks` on `MD$Quote` / `MD$Alert` (empty for leaf
   inline bodies). Render and `markdownBlockRenderedText` walk nested children
   when present.
@@ -533,7 +604,9 @@ extension points or reach into a default block painter's fields. Ordinary
 ### Glyph-tight hit testing
 - **CHANGED**: Hover I-beam and link hit-testing use rendered **line/glyph
   boxes**, not the full max-width layout of a paragraph. Empty horizontal
-  gutter beside a short line is no longer I-beam / click-to-open.
+  gutter beside a short line (quote and alert bodies included) is no longer
+  I-beam / click-to-open. Glyph boxes are cached per `TextPainter` layout, so
+  hovering stays cheap over long fenced code blocks.
 - **CHANGED**: Gesture *starts* (`hitsSelectableContent`) stay **surface-
   bounds**. A press inside the document or bubble arms text selection.
   Drag-extend may still clamp outside glyphs.
@@ -585,24 +658,20 @@ extension points or reach into a default block painter's fields. Ordinary
 - **CHANGED**: Flipping `enabled` from false → true with an existing
   non-collapsed range restores handles; when `toolbarWanted` is set, restores
   the toolbar. While disabled, the scope stays inert for chrome (no toolbar /
-  handles) but keeps `toolbarWanted` for that restore path.
+  handles) but keeps `toolbarWanted` for that restore path. Disabling the
+  scope mid-drag aborts the drag.
 
 ### Dynamic cursor resolution & span bounding boxes
 - **ADDED**: `MarkdownThemeData.cursorResolver` and
   `MarkdownWidget.cursorResolver` (`MarkdownCursorResolver`) — unopinionated
   hook to dynamically resolve hover mouse cursors per local offset, block
   index, and block model, falling back to default link/text/defer cursors when
-  returning null.
-- **ADDED**: `MarkdownSelectionSurface.localBoxesForRange` and
-  `MarkdownPainter.localBoxesForRange` — fast query returning content-local
-  bounding boxes for an arbitrary character range within a block, directly from
-  cached block painters without re-layout.
-
-### Line clamp
-- **ADDED**: `clampMarkdownToLines` / `MarkdownLineClamp` — painter-measured
-  height for the first N visual text lines at a given width (line-boundary cut;
-  spacers/dividers add height without spending the line budget). Callers size a
-  clipped box; the renderer itself has no line budget.
+  returning null. The hover cursor survives rebuilds that pass a new resolver
+  closure and re-resolves when the theme or resolver changes.
+- **ADDED**: `MarkdownSelectionSurface.localBoxesForRange` (backed by the
+  internal `MarkdownPainter.localBoxesForRange`) — fast query returning
+  content-local bounding boxes for an arbitrary character range within a block,
+  directly from cached block painters without re-layout.
 
 ### Registry / multi-body selection
 - **FIXED**: `removeDocument` defers while a surface for that id is mounted
@@ -648,13 +717,30 @@ extension points or reach into a default block painter's fields. Ordinary
     across gaps.
   - Soft-wrap affinity on handles; directed base/extent edges with reverse
     handle types; coincident-caret separation; handle proxies when an endpoint
-    surface unmounts (virtualization).
+    surface unmounts (virtualization), on the correct end for reversed
+    selections too.
   - Native `SelectionOverlay` handles + magnifier on touch; LeaderLayer follow
     across scroll / multi-widget hosts.
   - Keyboard Copy / Select-all / Shift-extend / Esc; adaptive Copy / Select-all
     toolbar with live re-anchoring.
   - Word / block granular multi-tap and long-press; link hand cursor / I-beam on
     selectable content.
+- **ADDED**: `MarkdownSelectionController.isSelectionReversed` (base after
+  extent in reading order), `selectionEndpointGlobalRect({base})` (global
+  caret rect of a mounted endpoint, null when unmounted, no proxying),
+  `selectionEndpointOverlaps(rect, {base})` and
+  `anySelectionEndpointOverlaps(rect)` (whether a mounted endpoint caret
+  intersects a global rect), and `toolbarWanted` (the toolbar-restore intent;
+  reset when the registry drops or collapses the range).
+- **CHANGED**: Toolbar hides while expanding (body or handle drag) and may
+  re-show on drag end; anchors recompute on selection change, host/ancestor
+  scroll, and mounted-surface layout change. Scroll-driven restores are
+  skipped while a drag is active.
+- **CHANGED**: Toolbar placement — both endpoints in clip use stock
+  above-preferring anchors; **bottom-only** endpoint prefers below that caret;
+  neither endpoint in clip (tall mid-viewport) top-pins so the below-fallback
+  cannot sink to the host bottom; empty intersection hides the overlay while
+  `toolbarWanted` restores on scroll-back / remount.
 - **CHANGED**: Desktop selection toolbar parity with stock Flutter:
   - On desktop (`macOS`, `Linux`, `Windows`), mouse drags, double/triple clicks,
     keyboard shortcuts (`Cmd/Ctrl+A`), and programmatic selection updates
@@ -663,7 +749,9 @@ extension points or reach into a default block painter's fields. Ordinary
     without mutating the active selection (no select-word / caret collapse).
   - Desktop context menu preserves its right-click anchor when triggering
     actions such as "Select all", rather than jumping to selection endpoints.
-  - Desktop context menu dismisses immediately upon scroll.
+  - Desktop context menu dismisses immediately upon scroll, but survives
+    streamed updates, sibling updates and resizes, with or without a
+    selection.
   - On mobile (`Android`, `iOS`), touch gestures and programmatic selection
     (`selectAll`, `selection = ...`) continue to present the adaptive toolbar
     and handles with action items.
@@ -718,11 +806,113 @@ extension points or reach into a default block painter's fields. Ordinary
 - **FIXED**: Selection highlight stays outside the glyph `Picture` cache —
   under glyphs by default (sharp text), with a second pass **above** opaque
   chrome (`selectionHighlightAboveCachedContent`) for code fences, table zebra
-  rows, and inline monospace / highlight backgrounds
-  (`markdownSpansPaintOpaqueBackground`).
+  rows, and inline monospace / highlight backgrounds.
 - **FIXED**: Focus loss does not clear selection while a pointer drag is active
-  (list rebuilds during autoscroll); geometry walks defer off `performLayout`
-  (`sizeAccessAllowed`).
+  (list rebuilds during autoscroll); geometry walks defer off `performLayout`.
+- **FIXED**: `Esc` with no selection is no longer swallowed by the scope, so it
+  reaches ancestors (closing a dialog, say).
+
+### Edge autoscroll while selecting
+- **ADDED**: Edge-zone autoscroll while dragging (body / handle / long-press)
+  near the padded viewport — host-union hard-stop, direction arming gate,
+  past-viewport max velocity while the union still allows that direction
+  (`MarkdownSelectionScope.autoscroll`, `MarkdownSelectionAutoscrollConfig`
+  with `copyWith` / `==`, default `edgeZone: 48`). Edge bands are capped at
+  half the viewport; speed is time-based, not tied to the pointer event rate;
+  a vertical edge drag only drives a vertical `Scrollable`; pointer cancel and
+  long-press cancel stop it. The scroll surface is resolved once per drag.
+- **ADDED**: `MarkdownAutoscrollTarget` — the scroll surface autoscroll drives,
+  behind three members (`viewport`, `canScroll`, `applyScrollDelta`). Deltas are
+  **screen-space content movement** (positive moves content up), never scroll
+  offsets, so reverse axes and inverted anchors are the adapter's problem.
+- **ADDED**: `MarkdownScrollableAutoscrollTarget` — the built-in sliver adapter
+  (`ScrollableState` / `ScrollPosition`), used when no resolver is configured.
+  Handles `AxisDirection.up` / `.left` sign flipping.
+- **ADDED**: `MarkdownSelectionAutoscrollConfig.targetResolver`
+  (`MarkdownAutoscrollTargetResolver` + `MarkdownAutoscrollRequest`) so a host
+  with its own scroll implementation — an anchored chat viewport, a `RenderBox`
+  that positions children itself, a transform canvas — can be driven without a
+  `Scrollable` anywhere in the tree. Plus `MarkdownCallbackAutoscrollTarget` and
+  `MarkdownAutoscrollViewport` (global bounds + band inset) for closure hosts.
+- **ADDED**: `MarkdownSelectionAutoscrollConfig.useHostUnionGate` (default
+  `true`). Turn it off when the markdown bodies **are** the scrolling content
+  and the host builds only what is visible: such a host's mounted union is
+  barely larger than the viewport, so the gate would veto a drag that should
+  keep paging through history. The target's `canScroll` and the delta it
+  reports applying are then the only stops.
+
+### Layout
+- **FIXED**: `MarkdownWidget` reports its intrinsic height and max intrinsic
+  width, so `IntrinsicHeight` (and similar) no longer collapses it to 0.
+- **FIXED**: A fenced code block too narrow for its padding is inert for
+  selection, so `selectAll` at tiny widths no longer crashes, and no longer
+  throws `TextPainter.paint called when text geometry was not yet calculated`
+  while painting (at widget widths of a few dozen pixels, less inside a quote
+  or alert).
+
+### Right-to-left layout
+- **FIXED**: With `MarkdownThemeData.textDirection` set to
+  `TextDirection.rtl`, blocks were still laid out left-to-right: paragraphs
+  and headings sat against the left edge, list bullets, quote bars and the
+  alert accent bar were on the left, and table columns ran left to right.
+  Blocks now mirror: text aligns to the right edge, bullets and bars sit on
+  the right, and the first table column is on the right (unaligned data
+  cells start on the right; explicit `:--` / `--:` alignment stays physical).
+  Link taps, hit testing and text selection follow the mirrored positions,
+  under tight and min-width constraints too. Left-to-right layout is
+  unchanged.
+- **FIXED**: Selection handles on right-to-left text sit at the logical start
+  (right edge) and end (left edge) of the selection. Each handle follows the
+  `textDirection` of the document it sits on, not the ambient
+  `Directionality`: the two can differ, and one selection can span documents
+  of both directions. Proxy handles for a scrolled-off edge land on the
+  reading start / end of the visible selection in either direction.
+- **FIXED**: A table too wide to fit overflows past its end edge in either
+  direction, so the columns read first stay in view (to the left of the
+  widget for right-to-left text).
+- **FIXED**: Link taps inside quotes account for the quote's indent.
+- **CHANGED**: Under tight constraints (for example a fixed-width chat
+  bubble), right-to-left content aligns to the full width, like `Text`. Under
+  loose constraints the widget still sizes to its content.
+- **CHANGED**: Fenced code blocks always render left-to-right, even in
+  right-to-left documents.
+- **ADDED**: `ParagraphGestureHandler.hitTestInlineSpanWithPointerEvent` takes
+  an optional `origin`, for painters whose text is not painted at the block
+  origin.
+- **FIXED**: A dry layout at other constraints, made after the real layout,
+  left hit testing, highlights and link taps at the measured positions while
+  the glyphs stayed put. The real layout is now restored after measuring.
+
+### Monospace font resolution
+- **FIXED**: Inline `` `code` `` and fenced blocks pick a monospace family the
+  host platform can actually resolve. Flutter hands the family straight to the
+  platform font manager, and CoreText (iOS / macOS) and DirectWrite (Windows)
+  do not know the CSS generic `'monospace'` — code silently rendered in the
+  proportional body face there. Those two now get `Menlo` / `Consolas`.
+  **Android, Fuchsia, Linux and web keep `'monospace'`**, so the primary face
+  there is unchanged. Note that on web it is unchanged but still wrong:
+  CanvasKit / skwasm reach no system fonts, so no family name resolves there
+  and code has always rendered in the proportional default. Bundling a
+  monospace asset and pointing `monospaceFontFamily` at it is the only fix,
+  and that is a host decision.
+- **CHANGED**: code spans now carry a `fontFamilyFallback` on every platform:
+  the monospace chain followed by whatever `textStyle` already carried. A
+  monospace face covers Latin and little else, so the body face's chain is
+  appended rather than replaced — a host's CJK / emoji coverage keeps working
+  inside `` `code` `` and fenced blocks.
+- **ADDED**: `MarkdownThemeData.monospaceFontFamily` /
+  `monospaceFontFamilyFallback` to pin a bundled face. Both default to the
+  platform-resolved chain above and are resolved once, in the constructor. One
+  knob covers both inline `` `code` `` and fenced blocks — there was previously
+  no supported way to change the fenced-block face at all: `BlockPainter$Code`
+  built its style in a static method reading a global, so even overriding
+  `textStyleFor` moved inline code only. An empty fallback list means "no
+  monospace fallbacks", not "unset" — `textStyle`'s own chain still applies.
+- **CHANGED**: `MarkdownThemeData.mergeTheme` resolves the default face from
+  `ThemeData.platform` rather than the global `defaultTargetPlatform`, so an
+  app that adapts its Material theme to another platform gets that platform's
+  face. `ThemeData.platform` defaults to `defaultTargetPlatform`, so this only
+  moves for an app that deliberately overrode it.
 
 ### Monospace font resolution
 - **FIXED**: Inline `` `code` `` and fenced blocks pick a monospace family the

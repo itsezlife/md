@@ -1,13 +1,13 @@
 import 'package:flutter/painting.dart';
 import 'package:flutter_md/flutter_md.dart';
-import 'package:flutter_md/src/render/embed_offset_map.dart';
+import 'package:flutter_md/src/render/text_offset_map.dart';
 import 'package:flutter_md/src/render/inline_embeds.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_inline_embed_resolver.dart';
 
 void main() {
-  group('MarkdownEmbedOffsets', () {
+  group('MarkdownTextOffsets', () {
     // A paragraph whose text is the literals and embeds in order; an `alt`
     // string is an embed, a plain string is text.
     InlineSpan paragraph(List<Object> parts) => TextSpan(
@@ -41,7 +41,7 @@ void main() {
 
     test('a paragraph with no embed is the identity', () {
       final span = paragraph(['plain ', 'text']);
-      final map = MarkdownEmbedOffsets.ofSpan(span);
+      final map = MarkdownTextOffsets.ofSpan(span);
       expect(map.isIdentity, isTrue);
       expect(map.renderedText(painterText(span)), 'plain text');
       for (var i = 0; i <= 10; i++) {
@@ -54,12 +54,12 @@ void main() {
     });
 
     test('a null span is the identity', () {
-      expect(MarkdownEmbedOffsets.ofSpan(null).isIdentity, isTrue);
+      expect(MarkdownTextOffsets.ofSpan(null).isIdentity, isTrue);
     });
 
     test('a multi-unit alt widens the text and shifts what follows', () {
       final span = paragraph(['ab', const _Alt('xyz'), 'c']);
-      final map = MarkdownEmbedOffsets.ofSpan(span);
+      final map = MarkdownTextOffsets.ofSpan(span);
       expect(painterText(span).length, 4);
       expect(map.renderedText(painterText(span)), 'abxyzc');
       expect(map.renderedLength(4), 6);
@@ -74,7 +74,7 @@ void main() {
     });
 
     test('an offset inside the alt snaps outward by the role it plays', () {
-      final map = MarkdownEmbedOffsets.ofSpan(
+      final map = MarkdownTextOffsets.ofSpan(
         paragraph(['ab', const _Alt('xyz'), 'c']),
       );
       for (final inside in [3, 4]) {
@@ -105,7 +105,7 @@ void main() {
       const family = '\u{1F468}‍\u{1F469}‍\u{1F467}';
       expect(family.length, 8);
       final span = paragraph(['\u{1F600}', const _Alt(family), '\u{1F600}']);
-      final map = MarkdownEmbedOffsets.ofSpan(span);
+      final map = MarkdownTextOffsets.ofSpan(span);
       expect(painterText(span).length, 5);
       expect(map.renderedText(painterText(span)), '\u{1F600}$family\u{1F600}');
       // Painter boundaries: 0, 2 | embed | 3, 5 -> rendered 0, 2, 10, 12.
@@ -122,7 +122,7 @@ void main() {
     test('an embed at the start, at the end and two side by side', () {
       final span = paragraph(
           [const _Alt('ab'), const _Alt('cde'), 'x', const _Alt('f')]);
-      final map = MarkdownEmbedOffsets.ofSpan(span);
+      final map = MarkdownTextOffsets.ofSpan(span);
       final text = painterText(span);
       expect(text.length, 4);
       expect(map.renderedText(text), 'abcdexf');
@@ -140,7 +140,7 @@ void main() {
         '\u{1F468}‍\u{1F469}',
         const _Alt('xyz'),
       ]);
-      final map = MarkdownEmbedOffsets.ofSpan(span);
+      final map = MarkdownTextOffsets.ofSpan(span);
       final text = painterText(span);
       final length = map.renderedLength(text.length);
       final embedded = <(int, int)>[
@@ -160,7 +160,7 @@ void main() {
 
     test('an empty alt takes a placeholder and no rendered text', () {
       final span = paragraph(['a', const _Alt(''), 'b']);
-      final map = MarkdownEmbedOffsets.ofSpan(span);
+      final map = MarkdownTextOffsets.ofSpan(span);
       expect(map.renderedText(painterText(span)), 'ab');
       expect(map.renderedLength(3), 2);
       expect([for (var p = 0; p <= 3; p++) map.toRendered(p)], [0, 1, 1, 2]);
@@ -174,13 +174,29 @@ void main() {
         text: first,
         textDirection: TextDirection.ltr,
       );
-      expect(MarkdownEmbedOffsets.of(painter).entries, hasLength(1));
+      expect(MarkdownTextOffsets.of(painter).entries, hasLength(1));
       expect(
-          identical(MarkdownEmbedOffsets.of(painter),
-              MarkdownEmbedOffsets.of(painter)),
+          identical(
+              MarkdownTextOffsets.of(painter), MarkdownTextOffsets.of(painter)),
           isTrue);
       painter.text = const TextSpan(text: 'plain');
-      expect(MarkdownEmbedOffsets.of(painter).isIdentity, isTrue);
+      expect(MarkdownTextOffsets.of(painter).isIdentity, isTrue);
+      painter.dispose();
+    });
+
+    test('the rendered text of a painter is built once per text', () {
+      final painter = TextPainter(
+        text: paragraph(['ab', const _Alt('xyz')]),
+        textDirection: TextDirection.ltr,
+      );
+      final rendered = MarkdownTextOffsets.renderedTextOf(painter);
+      expect(rendered, 'abxyz');
+      expect(identical(MarkdownTextOffsets.renderedTextOf(painter), rendered),
+          isTrue);
+      painter.text = paragraph(['cd', const _Alt('uv')]);
+      expect(MarkdownTextOffsets.renderedTextOf(painter), 'cduv');
+      painter.text = const TextSpan(text: 'plain');
+      expect(MarkdownTextOffsets.renderedTextOf(painter), 'plain');
       painter.dispose();
     });
   });

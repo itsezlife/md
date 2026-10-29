@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'coverage_gaps_test.dart' as coverage_gaps_test;
+import 'highlight/grammar_coverage_test.dart' as grammar_coverage_test;
 import 'highlight/highlight_test.dart' as highlight_test;
 import 'line_clamp/line_clamp_test.dart' as line_clamp_test;
 import 'nodes/nodes_test.dart' as nodes_test;
@@ -14,17 +16,23 @@ import 'parser/math_test.dart' as math_test;
 import 'parser/parser_test.dart' as parser_test;
 import 'parser/regression_test.dart' as regression_test;
 import 'parser/streaming_test.dart' as streaming_test;
-import 'render/embed_offset_map_test.dart' as embed_offset_map_test;
+import 'render/text_offset_map_test.dart' as text_offset_map_test;
 import 'render/embed_paint_test.dart' as embed_paint_test;
 import 'render/emoji_run_test.dart' as emoji_run_test;
 import 'render/horizontal_pan_test.dart' as horizontal_pan_test;
 import 'render/inline_embed_test.dart' as inline_embed_test;
+import 'render/inline_layers_test.dart' as inline_layers_test;
 import 'render/selection_highlight_test.dart' as selection_highlight_test;
 import 'selection/markup_formatter_test.dart' as markup_formatter_test;
+import 'selection/selection_autoscroll_regressions_test.dart'
+    as selection_autoscroll_regressions_test;
 import 'selection/selection_autoscroll_target_test.dart'
     as selection_autoscroll_target_test;
 import 'selection/selection_autoscroll_test.dart' as selection_autoscroll_test;
 import 'selection/selection_chrome_test.dart' as selection_chrome_test;
+import 'selection/selection_controller_edge_test.dart'
+    as selection_controller_edge_test;
+import 'selection/selection_coverage_test.dart' as selection_coverage_test;
 import 'selection/selection_handle_endpoints_test.dart'
     as selection_handle_endpoints_test;
 import 'selection/selection_handles_test.dart' as selection_handles_test;
@@ -33,9 +41,14 @@ import 'selection/selection_keyboard_test.dart' as selection_keyboard_test;
 import 'selection/selection_nested_blocks_test.dart'
     as selection_nested_blocks_test;
 import 'selection/selection_registry_test.dart' as selection_registry_test;
+import 'selection/selection_rtl_test.dart' as selection_rtl_test;
+import 'selection/selection_scope_coverage_test.dart'
+    as selection_scope_coverage_test;
+import 'selection/selection_scope_regressions_test.dart'
+    as selection_scope_regressions_test;
 import 'selection/selection_test.dart' as selection_test;
-import 'selection/source_formatter_test.dart' as source_formatter_test;
 import 'selection/selection_widget_test.dart' as selection_widget_test;
+import 'selection/source_formatter_test.dart' as source_formatter_test;
 import 'spoiler/spoiler_controller_test.dart' as spoiler_controller_test;
 import 'spoiler/spoiler_dust_test.dart' as spoiler_dust_test;
 import 'spoiler/spoiler_golden_test.dart' as spoiler_golden_test;
@@ -47,9 +60,15 @@ import 'spoiler/spoiler_particle_tile_test.dart' as spoiler_particle_tile_test;
 import 'spoiler/spoiler_selection_test.dart' as spoiler_selection_test;
 import 'spoiler/spoiler_widget_test.dart' as spoiler_widget_test;
 import 'theme/theme_test.dart' as theme_test;
-import 'widget/mention_paint_test.dart' as mention_paint_test;
+import 'widget/block_painters_test.dart' as block_painters_test;
 import 'widget/chip_test.dart' as chip_test;
+import 'widget/inline_image_test.dart' as inline_image_test;
+import 'widget/mention_paint_test.dart' as mention_paint_test;
+import 'widget/render_coverage_test.dart' as render_coverage_test;
+import 'widget/render_object_test.dart' as render_object_test;
 import 'widget/render_test.dart' as render_test;
+import 'widget/rtl_geometry_test.dart' as rtl_geometry_test;
+import 'widget/rtl_test.dart' as rtl_test;
 import 'widget/widget_test.dart' as widget_test;
 
 void main() => group('Unit', () {
@@ -66,12 +85,14 @@ void main() => group('Unit', () {
       link_escape_test.main();
       nodes_test.main();
       highlight_test.main();
+      grammar_coverage_test.main();
       theme_test.main();
       mention_paint_test.main();
       chip_test.main();
       horizontal_pan_test.main();
-      embed_offset_map_test.main();
+      text_offset_map_test.main();
       inline_embed_test.main();
+      inline_layers_test.main();
       embed_paint_test.main();
       emoji_run_test.main();
       selection_highlight_test.main();
@@ -80,6 +101,7 @@ void main() => group('Unit', () {
       source_formatter_test.main();
       selection_widget_test.main();
       selection_keyboard_test.main();
+      selection_rtl_test.main();
       selection_handles_test.main();
       selection_handle_endpoints_test.main();
       selection_autoscroll_test.main();
@@ -98,6 +120,18 @@ void main() => group('Unit', () {
       spoiler_widget_test.main();
       spoiler_golden_test.main();
       line_clamp_test.main();
+      selection_controller_edge_test.main();
+      selection_coverage_test.main();
+      selection_scope_regressions_test.main();
+      selection_scope_coverage_test.main();
+      selection_autoscroll_regressions_test.main();
       render_test.main();
+      render_object_test.main();
+      block_painters_test.main();
+      render_coverage_test.main();
+      inline_image_test.main();
+      rtl_test.main();
+      rtl_geometry_test.main();
       widget_test.main();
+      coverage_gaps_test.main();
     });

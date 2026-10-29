@@ -121,7 +121,7 @@ class MarkdownSelectionScope extends StatefulWidget {
   /// Optional host gate for starting a body selection at a global point.
   ///
   /// When this returns false, mouse/touch selection recognizers do not claim
-  /// the pointer and [_beginSelection] refuses — so enclosing hosts can own
+  /// the pointer and a selection start is refused — so enclosing hosts can own
   /// taps on chrome (links, code headers) without the scope eating the click.
   /// Null means every selectable-content hit may start selection.
   final bool Function(Offset globalPosition)? canStartSelectionAt;
@@ -188,8 +188,9 @@ class MarkdownSelectionScope extends StatefulWidget {
   State<MarkdownSelectionScope> createState() => MarkdownSelectionScopeState();
 }
 
-/// State for [MarkdownSelectionScope]. Public so a custom [contextMenuBuilder]
-/// can drive it (copy/select-all/clear + toolbar geometry), mirroring
+/// State for [MarkdownSelectionScope]. Public so a custom
+/// [MarkdownSelectionScope.contextMenuBuilder] can drive it (copy/select-all/
+/// clear + toolbar geometry), mirroring
 /// `SelectableRegionState`.
 class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     with TickerProviderStateMixin {
@@ -317,10 +318,19 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
           _refreshToolbarForVisibleGeometry();
         }
       } else {
+        // The recognizers are dropped with the subtree, so their end
+        // callbacks never fire: tear down the in-flight drag here.
+        _abortDrag();
         _clearHandles();
         _contextMenuController.remove();
       }
     }
+  }
+
+  void _abortDrag() {
+    _stopAutoscroll();
+    _deferHandleShow = false;
+    _selectionOverlay?.hideMagnifier();
   }
 
   @override
@@ -413,6 +423,9 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
           _refreshToolbarForVisibleGeometry();
         }
       }
+    } else if (_isDesktopPlatform && _lastSecondaryTapDown != null) {
+      // Desktop right-click menu is point-anchored: keep it, refresh items.
+      _markContextMenuNeedsBuild();
     } else {
       hideToolbar();
     }
@@ -502,9 +515,13 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   void _updateHandlesAndOverlay() {
     if (!_handlesEnabled) {
       _clearHandles();
-      // Losing chrome ownership (or disabled) must also drop a lingering
-      // context menu — handles alone were cleared before.
-      _contextMenuController.remove();
+      // Losing chrome ownership (or being disabled) must also drop a
+      // lingering context menu — handles alone were cleared before. A desktop
+      // platform has no handles either, but its menu (a right-click) is live
+      // and must survive an overlay sync.
+      if (!widget.enabled || !_ownsChromeForCurrentSelection) {
+        _contextMenuController.remove();
+      }
       return;
     }
     final endpoints = controller.selectionHandleEndpoints();
@@ -514,21 +531,32 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     }
     _applyHandles(endpoints);
     if (context.findRenderObject() case final RenderBox box when box.hasSize) {
+      // Each handle follows the direction of the text it sits on, which is
+      // the surface's theme rather than the ambient Directionality: the two
+      // can differ, and one selection can span documents of both kinds.
+      final startRtl = _isRtl(endpoints.startSurface);
+      final endRtl = _isRtl(endpoints.endSurface);
       final startPoint = TextSelectionPoint(
-        box.globalToLocal(
-            Offset(endpoints.startGlobal.left, endpoints.startGlobal.bottom)),
-        TextDirection.ltr,
+        box.globalToLocal(Offset(
+          startRtl ? endpoints.startGlobal.right : endpoints.startGlobal.left,
+          endpoints.startGlobal.bottom,
+        )),
+        endpoints.startSurface.textDirection,
       );
       final endPoint = TextSelectionPoint(
-        box.globalToLocal(
-            Offset(endpoints.endGlobal.right, endpoints.endGlobal.bottom)),
-        TextDirection.ltr,
+        box.globalToLocal(Offset(
+          endRtl ? endpoints.endGlobal.left : endpoints.endGlobal.right,
+          endpoints.endGlobal.bottom,
+        )),
+        endpoints.endSurface.textDirection,
       );
+      // A right-to-left handle sits on the opposite side of its caret, and a
+      // reversed selection swaps the ends again; the two flips cancel out.
       final reversed = controller.isSelectionReversed;
-      final startType = reversed
+      final startType = reversed != startRtl
           ? TextSelectionHandleType.right
           : TextSelectionHandleType.left;
-      final endType = reversed
+      final endType = reversed != endRtl
           ? TextSelectionHandleType.left
           : TextSelectionHandleType.right;
       switch (_selectionOverlay) {
@@ -578,6 +606,12 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     }
   }
 
+  /// Whether [surface] lays its text out right-to-left, in which case a
+  /// selection starts at the right edge of its first box and ends at the left
+  /// edge of its last one.
+  static bool _isRtl(MarkdownSelectionSurface surface) =>
+      surface.textDirection == TextDirection.rtl;
+
   /// Assigns the two handle leader layers to their owning surfaces (and clears
   /// them on every other mounted surface) in a single pass, so nothing
   /// repaints needlessly.
@@ -587,8 +621,14 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   void _applyHandles(MarkdownHandleEndpoints e) {
     final startSurface = e.startSurface;
     final endSurface = e.endSurface;
-    final startLocal = Offset(e.startLocal.left, e.startLocal.bottom);
-    final endLocal = Offset(e.endLocal.right, e.endLocal.bottom);
+    final startLocal = Offset(
+      _isRtl(startSurface) ? e.startLocal.right : e.startLocal.left,
+      e.startLocal.bottom,
+    );
+    final endLocal = Offset(
+      _isRtl(endSurface) ? e.endLocal.left : e.endLocal.right,
+      e.endLocal.bottom,
+    );
     for (final surface in controller.mountedSurfaces) {
       final isStart = identical(surface, startSurface);
       final isEnd = identical(surface, endSurface);
@@ -804,6 +844,9 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
 
   /// Pointer-driven autoscroll step: only starts the ticker when scrolling.
   void _driveAutoscroll() {
+    // A running ticker already steps once per frame from the latest
+    // [_dragGlobal]; stepping again per pointer event would multiply speed.
+    if (_autoscrollTicker != null) return;
     _tickAutoscroll();
   }
 
@@ -1560,7 +1603,8 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     if (!_isDesktopPlatform) {
       _lastSecondaryTapDown = null;
     }
-    if (_visibleSelectionBounds() case null) {
+    final pointAnchored = _lastSecondaryTapDown != null;
+    if (!pointAnchored && _visibleSelectionBounds() == null) {
       _contextMenuController.remove();
       return;
     }
@@ -1681,7 +1725,8 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
           ..onTapUp = _handleTapUp
           ..onDragStart = _handleDragStart
           ..onDragUpdate = _handleDragUpdate
-          ..onDragEnd = ((_) => _onBodyDragEnd()),
+          ..onDragEnd = ((_) => _onBodyDragEnd())
+          ..onCancel = _stopAutoscroll,
       ),
     };
 
@@ -1730,7 +1775,8 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
           ..onTapUp = _handleTapUp
           ..onDragStart = _handleDragStart
           ..onDragUpdate = _handleDragUpdate
-          ..onDragEnd = ((_) => _onBodyDragEnd()),
+          ..onDragEnd = ((_) => _onBodyDragEnd())
+          ..onCancel = _stopAutoscroll,
       );
     }
 
@@ -1792,10 +1838,14 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
             _magnifierInfo(d.globalPosition, isStart: false),
           );
         })
+        ..onLongPressCancel = (() {
+          _stopAutoscroll();
+          _selectionOverlay?.hideMagnifier();
+        })
         ..onLongPressEnd = ((_) {
-          if (_dragGlobal == null && controller.selection == null) {
-            return;
-          }
+          // Not armed (missed content / host gate refused): the host owns
+          // this press — do not present our chrome.
+          if (_dragGlobal == null) return;
           _stopAutoscroll();
           _selectionOverlay?.hideMagnifier();
           _deferHandleShow = false;
@@ -1867,7 +1917,11 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
       },
     ),
     DismissIntent: CallbackAction<DismissIntent>(
-      onInvoke: (_) {
+      onInvoke: (intent) {
+        if (controller.selection == null && !toolbarIsVisible) {
+          // Nothing to dismiss here: forward to ancestors (dialog / route).
+          return Actions.maybeInvoke<DismissIntent>(context, intent);
+        }
         clearSelection();
         return null;
       },

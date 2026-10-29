@@ -1,6 +1,7 @@
 library;
 
 export 'src/chip_style.dart';
+export 'src/image.dart';
 export 'src/inline_embed.dart';
 export 'src/line_clamp.dart';
 export 'src/markdown.dart';
@@ -18,6 +19,10 @@ export 'src/render.dart'
         SpoilerBlockPainter,
         ParagraphGestureHandler,
         paragraphFromMarkdownSpans,
+        // Inline images — lay out / paint text that may hold pictures.
+        MarkdownImageSpan,
+        layoutMarkdownText,
+        paintMarkdownText,
         // Default block painters — reuse, wrap or subclass them.
         BlockPainter$Paragraph,
         BlockPainter$Heading,
@@ -31,7 +36,15 @@ export 'src/render.dart'
         BlockPainter$Spacer;
 export 'src/highlight/engine.dart' show CodeHighlightTheme, SyntaxHighlighter;
 export 'src/selection.dart';
-export 'src/selection_autoscroll.dart';
+export 'src/selection_autoscroll.dart'
+    show
+        MarkdownAutoscrollRequest,
+        MarkdownAutoscrollTarget,
+        MarkdownAutoscrollTargetResolver,
+        MarkdownAutoscrollViewport,
+        MarkdownCallbackAutoscrollTarget,
+        MarkdownScrollableAutoscrollTarget,
+        MarkdownSelectionAutoscrollConfig;
 export 'src/selection_scope.dart';
 export 'src/spoiler.dart';
 export 'src/theme.dart';

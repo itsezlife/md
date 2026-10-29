@@ -6,8 +6,9 @@ first, every time. Deep detail lives in [`docs/`](docs/) — linked per section.
 `flutter_md` is a Flutter Markdown package: a hand-rolled **parser** → an
 immutable **node model** → a **canvas render layer** (one `RenderBox`, no
 widget-per-block) → cross-block/cross-widget **text selection**. Repo:
-`itsezlife/md` (a fork of `DoctorinaAI/md` that no longer tracks upstream),
-package `flutter_md`, currently `0.5.0`, branch `master`, consumed by git ref.
+`itsezlife/md` (a fork of `DoctorinaAI/md`; upstream changes are merged in
+by hand, last at upstream `0.3.0`), package `flutter_md`, currently `0.7.0`,
+branch `master`, consumed by git ref.
 
 ## Commands (these are the CI gates — run before you claim done)
 
@@ -36,17 +37,23 @@ benchmarks run under `dart run`.
 | `parser.dart` | `MarkdownDecoder` (a `Converter<String, Markdown>`); one hand-rolled line loop, perf-tuned | [parser](docs/parser.md) |
 | `nodes.dart` | `MD$*` immutable node tree, `MD$Style` bitmask, `.map()` dispatch | [parser](docs/parser.md) |
 | `markdown.dart` | `Markdown` model + `Markdown.fromString(...)` entry point | [parser](docs/parser.md) |
+| `image.dart` | `MarkdownImage` interface, `MarkdownImageRequest` / `Resolver`, `MarkdownProviderImage(+Resolver)` (`ImageProvider`-backed defaults) | [rendering](docs/rendering.md) |
+| `render/inline_image.dart` | `MarkdownImageSpan`, `layoutMarkdownText` / `paintMarkdownText`, model ↔ painter offset map, `MarkdownImagePool` (`@meta.internal`) | [rendering](docs/rendering.md) |
 | `theme.dart` | `MarkdownThemeData` (a `ThemeExtension`), `MarkdownTheme`; `builder`/`blockFilter`/`spanFilter` hooks | [rendering](docs/rendering.md) |
 | `inline_embed.dart` | Public inline embed contract (`MarkdownInlineEmbed`, resolver, target, metrics); the package knows no implementation | [rendering](docs/rendering.md#inline-embeds) |
+| `image.dart` | Public inline picture contract (`MarkdownImage`, resolver, request, constraints) and the `ImageProvider`-backed defaults; opt-in via `MarkdownThemeData.imageResolver` | [rendering](docs/rendering.md) |
 | `spoiler.dart` | `MarkdownSpoilerController`: revealed documents, reveal origin, the dust clock the host feeds; public | [rendering](docs/rendering.md#spoilers) |
 | `render.dart` | **re-export barrel** for `render/` (keeps `src/render.dart` imports working) | [rendering](docs/rendering.md) |
 | `render/block_painter.dart` | `BlockPainter` framework: interfaces + mixins (`SelectableTextBlock`, `MultiPainterSelectable`, `ParagraphGestureHandler`, `SelectableFragment`, `HorizontallyPannableBlock`) | [rendering](docs/rendering.md) |
 | `render/span_builder.dart` | `paragraphFromMarkdownSpans(...)` — the public span→`TextSpan` helper | [rendering](docs/rendering.md) |
+| `render/inline_image.dart` | `MarkdownImageSpan`, `layoutMarkdownText` / `paintMarkdownText`, `MarkdownImagePool`; its offset helpers read `render/text_offset_map.dart`, the one painter ↔ rendered map for embeds, pictures and chips | [rendering](docs/rendering.md) |
 | `render/markdown_painter.dart` | `MarkdownPainter` orchestrator (`@meta.internal`): block list, layout, cached `ui.Picture`, hit-test | [rendering](docs/rendering.md) |
 | `render/markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface` | [rendering](docs/rendering.md) |
 | `render/blocks/*.dart` | `BlockPainter$Paragraph … $Table` / `$ScrollableTable` — default painters + opt-in pannable table | [rendering](docs/rendering.md) |
 | `selection.dart` | `MarkdownSelectionController`, `MarkdownPosition/Selection`, registry, reconciliation, formatters, `markdownBlockRenderedText` | [selection](docs/selection.md) |
 | `selection_scope.dart` | `MarkdownSelectionScope` — gestures, keyboard, handles, toolbar; `MarkdownSelectionGroup` | [selection](docs/selection.md) |
+| `selection_autoscroll.dart` | Edge autoscroll while selecting: `MarkdownSelectionAutoscrollConfig`, `MarkdownAutoscrollTarget` (+ resolver / callback / scrollable targets) | [selection](docs/selection.md) |
+| `highlight/engine.dart` (+ `lib/highlight/*.dart`) | Syntax highlighting: Prism-style tokenizer (`greedy` rules match across earlier tokens), `MarkdownHighlighter`, generated per-language grammars (`tool/highlight_codegen`), GitHub themes | [codegen](tool/highlight_codegen/README.md) |
 | `widget.dart` | `MarkdownWidget` (`LeafRenderObjectWidget`) — the public entry widget | [rendering](docs/rendering.md) |
 
 Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
@@ -67,7 +74,7 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
 5. **One test entrypoint:** a new `test/**/foo_test.dart` must be wired into
    `test/unit_test.dart` (import + `main()` inside `group('Unit', …)`) or CI won't run it.
 6. **CHANGELOG discipline:** the `version:` in `pubspec.yaml` must have a matching
-   `# <version>` heading in `CHANGELOG.md` or the CI setup step fails.
+   `## <version>` heading in `CHANGELOG.md` or the CI setup step fails.
 
 ## Load-bearing invariants (don't break silently)
 
@@ -115,9 +122,20 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
   values for co-hosted bodies.
 - Alert **title** is not selectable (body only). Keyboard word/line extension is
   block-approximate. `MarkdownSelectedBlock.sourceRange` is currently always null.
+- An inline picture is one U+FFFC in its `TextPainter` but its alt text in the
+  model: read `markdownModelText(painter)`, never `painter.plainText`, for
+  selection text (custom painters: use the `SelectableTextBlock` /
+  `MultiPainterSelectable` mixins, which map offsets), and lay out / paint
+  with `layoutMarkdownText` / `paintMarkdownText`.
+  Known limitation: keyboard character steps walk the alt text one code unit
+  at a time, so an endpoint can sit inside it — the highlight covers the whole
+  picture while the copy holds only part of the alt text.
 - `__x__` = **underline**, not bold. Soft line breaks are preserved inside
   paragraphs. Inline `$…$` math is **opt-in** (`inlineMath: true`).
 - `example/` is a separate package (`md_example`, `path: ../`).
+- Goldens are per host OS (`goldens/` = macOS, `goldens/linux/` = CI). A
+  pixel change updates both sets; see
+  [`docs/development.md`](docs/development.md#goldens).
 
 ## The docs
 

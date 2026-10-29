@@ -1,7 +1,7 @@
 # Development
 
 Commands, CI, conventions, benchmarks, and repo layout. Package `flutter_md`
-(`0.2.0`); Dart `>=3.6.0 <4.0.0`, Flutter `>=3.29.0`.
+(`0.3.0`); Dart `>=3.6.0 <4.0.0`, Flutter `>=3.29.0`.
 
 ## Commands
 
@@ -20,6 +20,25 @@ dart format lib test example                                    # to actually ap
 
 # Example app (separate package md_example, depends on flutter_md via path: ../):
 cd example && flutter pub get && flutter run
+```
+
+### Goldens
+
+Text and antialiasing rasterize differently per OS, so the golden tests
+(`test/render/embed_paint_test.dart`, `test/render/selection_highlight_test.dart`,
+`test/spoiler/spoiler_golden_test.dart`) keep one image set per host through
+`test/golden_comparator.dart`: macOS images sit in `goldens/`, Linux (CI) ones
+in `goldens/linux/`. A change that moves pixels updates **both** sets:
+
+```shell
+# macOS
+flutter test --update-goldens <golden test files>
+# Linux, in the CI image (emulated on Apple silicon; copy the repo first so the
+# container does not rewrite your .dart_tool):
+docker run --rm --platform linux/amd64 -v "$COPY":/w -w /w \
+  ghcr.io/plugfox/flutter:stable \
+  sh -c 'flutter pub get && flutter test --update-goldens <golden test files>'
+# then copy $COPY/test/**/goldens/linux/*.png back
 ```
 
 ### Benchmarks
@@ -59,7 +78,7 @@ job, steps in order (any non-zero fails):
 1. Checkout.
 2. **Setup** (`./.github/actions/setup`): sparse-checkout, `flutter pub get`, and a
    **CHANGELOG check** — the `version:` in `pubspec.yaml` must appear as a
-   `# <version>` heading in `CHANGELOG.md`, else exit 1.
+   `## <version>` heading in `CHANGELOG.md`, else exit 1.
 3. **Check code format** — the format gate command above.
 4. **Check analyzer** — `dart analyze --fatal-infos --fatal-warnings lib/ test/`.
 5. **Run unit tests** — `flutter test --coverage --concurrency=40 test/unit_test.dart`.
@@ -102,7 +121,7 @@ Base `package:flutter_lints/flutter.yaml`, plus `strict-casts`, `strict-raw-type
   inside `group('Unit', …)`. A new `*_test.dart` must be wired there or CI skips it.
 - **Doc comments required** on all public members (see the lint above).
 - **CHANGELOG discipline:** bump `pubspec.yaml` `version:` and add the matching
-  `# <version>` heading in `CHANGELOG.md` together.
+  `## <version>` heading in `CHANGELOG.md` together.
 
 ## Dependencies
 

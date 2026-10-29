@@ -1,4 +1,5 @@
-import 'dart:ui' show Color, Offset, Rect, TextAffinity, TextRange;
+import 'dart:ui'
+    show Color, Offset, Rect, TextAffinity, TextDirection, TextRange;
 
 import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
@@ -741,15 +742,21 @@ class _ContentAnchoredPolicy implements MarkdownReconciliationPolicy {
       );
     }
     // Relocate by matching the anchor block's rendered text in the new model.
+    // Search outward from the old index so a duplicate block earlier in the
+    // document (a repeated "Yes") cannot steal the anchor.
     final oldText = markdownBlockRenderedText(o.blocks[anchor.blockIndex]);
     if (oldText.isNotEmpty) {
-      for (var i = 0; i < n.blocks.length; i++) {
-        if (markdownBlockRenderedText(n.blocks[i]) == oldText) {
-          return MarkdownPosition(
-            documentId: anchor.documentId,
-            blockIndex: i,
-            offset: anchor.offset.clamp(0, oldText.length),
-          );
+      final from = anchor.blockIndex;
+      for (var d = 0; d <= from + n.blocks.length; d++) {
+        for (final i in <int>[from - d, if (d > 0) from + d]) {
+          if (i < 0 || i >= n.blocks.length) continue;
+          if (markdownBlockRenderedText(n.blocks[i]) == oldText) {
+            return MarkdownPosition(
+              documentId: anchor.documentId,
+              blockIndex: i,
+              offset: anchor.offset.clamp(0, oldText.length),
+            );
+          }
         }
       }
     }
@@ -773,6 +780,11 @@ abstract interface class MarkdownSelectionSurface {
 
   /// The surface's bounds in global (screen) coordinates.
   Rect get globalBounds;
+
+  /// The direction this surface lays its text out in. Orients selection
+  /// handles: a right-to-left selection starts on the right of its first line
+  /// and ends on the left of its last one.
+  TextDirection get textDirection;
 
   /// Maps a global point to a logical position, or null if outside any text.
   MarkdownPosition? positionForGlobal(Offset globalPosition);
@@ -1086,14 +1098,19 @@ class MarkdownSelectionController extends ChangeNotifier
     MarkdownSelection value, {
     TextAffinity? baseAffinity,
     TextAffinity? extentAffinity,
+    bool notifyIfUnchanged = false,
   }) {
+    final affinityChanged =
+        (baseAffinity != null && baseAffinity != _baseAffinity) ||
+            (extentAffinity != null && extentAffinity != _extentAffinity);
     if (baseAffinity != null) _baseAffinity = baseAffinity;
     if (extentAffinity != null) _extentAffinity = extentAffinity;
     if (value.isCollapsed) toolbarWanted = false;
     if (value == _selection) {
       // Affinity-only update (same anchors, different soft-wrap line) still
-      // needs to refresh handle geometry.
-      notifyListeners();
+      // needs to refresh handle geometry. A pointer move that lands on the
+      // same position changes nothing and must not wake every surface.
+      if (affinityChanged || notifyIfUnchanged) notifyListeners();
       return;
     }
     _selection = value;
@@ -1326,8 +1343,20 @@ class MarkdownSelectionController extends ChangeNotifier
     if (sel != null &&
         (sel.base.documentId == id || sel.extent.documentId == id)) {
       _selection = null;
+      _resetChromeIfInactive();
     }
     notifyListeners();
+  }
+
+  /// Clears [toolbarWanted] and the endpoint affinities once the registry
+  /// itself (not the [selection] setter) dropped or collapsed the range, so a
+  /// stale toolbar request cannot carry into the next selection.
+  void _resetChromeIfInactive() {
+    final sel = _selection;
+    if (sel != null && !sel.isCollapsed) return;
+    _toolbarWanted = false;
+    _baseAffinity = TextAffinity.downstream;
+    _extentAffinity = TextAffinity.downstream;
   }
 
   // Documents are ordered by their `order` key. `List.sort` is not stable, so
@@ -1362,6 +1391,7 @@ class MarkdownSelectionController extends ChangeNotifier
       _selection = (base == null || extent == null)
           ? null
           : MarkdownSelection(base: base, extent: extent);
+      if (_selection != sel) _resetChromeIfInactive();
     }
     _remapHorizontalPans(id, oldModel, newModel);
   }
@@ -1389,12 +1419,14 @@ class MarkdownSelectionController extends ChangeNotifier
     if (_orderIndex(sel.base.documentId) < 0 ||
         _orderIndex(sel.extent.documentId) < 0) {
       _selection = null;
+      _resetChromeIfInactive();
       return;
     }
     _selection = MarkdownSelection(
       base: _clampInto(sel.base, _modelOf(sel.base.documentId)),
       extent: _clampInto(sel.extent, _modelOf(sel.extent.documentId)),
     );
+    if (_selection != sel) _resetChromeIfInactive();
   }
 
   // --- surfaces (mounted geometry) ----------------------------------------
@@ -1607,9 +1639,11 @@ class MarkdownSelectionController extends ChangeNotifier
   /// physical copy shortcuts). On desktop platforms, [toolbarWanted] remains
   /// false to match standard OS selection behavior.
   void selectAll() {
-    if (_docs.isEmpty) return;
-    final first = _docs.first, last = _docs.last;
-    if (first.model.blocks.isEmpty || last.model.blocks.isEmpty) return;
+    // Skip documents with no blocks yet (a chat message that just started
+    // streaming) so they cannot veto selecting everything else.
+    final withBlocks = _docs.where((e) => e.model.blocks.isNotEmpty);
+    if (withBlocks.isEmpty) return;
+    final first = withBlocks.first, last = withBlocks.last;
     final lastBlock = last.model.blocks.length - 1;
     if (!_isDesktopPlatform) {
       toolbarWanted = true;
@@ -1626,6 +1660,8 @@ class MarkdownSelectionController extends ChangeNotifier
       ),
       baseAffinity: TextAffinity.downstream,
       extentAffinity: TextAffinity.upstream,
+      // A repeated select-all re-requests the toolbar on mobile.
+      notifyIfUnchanged: true,
     );
   }
 
@@ -2003,15 +2039,18 @@ class MarkdownSelectionController extends ChangeNotifier
       _extentAffinity,
     );
 
+    // The base handle of a reversed selection sits at the visible bottom
+    // (reading end), so its proxy borrows the opposite edge.
+    final reversed = isSelectionReversed;
     if (startSurface == null || startLocal == null) {
-      final proxy = _proxyHandleOnVisibleSelection(forStartEdge: true);
+      final proxy = _proxyHandleOnVisibleSelection(forStartEdge: !reversed);
       if (proxy != null) {
         startSurface = proxy.$1;
         startLocal = proxy.$2;
       }
     }
     if (endSurface == null || endLocal == null) {
-      final proxy = _proxyHandleOnVisibleSelection(forStartEdge: false);
+      final proxy = _proxyHandleOnVisibleSelection(forStartEdge: reversed);
       if (proxy != null) {
         endSurface = proxy.$1;
         endLocal = proxy.$2;
@@ -2094,15 +2133,19 @@ class MarkdownSelectionController extends ChangeNotifier
         if (surface == null) continue;
         final locals = surface.localSelectionRects();
         if (locals.isEmpty) continue;
+        // Reading start: the top line's left end, or its right end for RTL.
+        final rtl = surface.textDirection == TextDirection.rtl;
         var best = locals.first;
         for (final r in locals.skip(1)) {
-          if (r.top < best.top || (r.top == best.top && r.left < best.left)) {
+          if (r.top < best.top ||
+              (r.top == best.top &&
+                  (rtl ? r.right > best.right : r.left < best.left))) {
             best = r;
           }
         }
         return (
           surface,
-          Rect.fromLTWH(best.left, best.top, 0, best.height),
+          Rect.fromLTWH(rtl ? best.right : best.left, best.top, 0, best.height),
         );
       }
     } else {
@@ -2111,16 +2154,19 @@ class MarkdownSelectionController extends ChangeNotifier
         if (surface == null) continue;
         final locals = surface.localSelectionRects();
         if (locals.isEmpty) continue;
+        // Reading end: the bottom line's right end, or its left end for RTL.
+        final rtl = surface.textDirection == TextDirection.rtl;
         var best = locals.first;
         for (final r in locals) {
           if (r.bottom > best.bottom ||
-              (r.bottom == best.bottom && r.right > best.right)) {
+              (r.bottom == best.bottom &&
+                  (rtl ? r.left < best.left : r.right > best.right))) {
             best = r;
           }
         }
         return (
           surface,
-          Rect.fromLTWH(best.right, best.top, 0, best.height),
+          Rect.fromLTWH(rtl ? best.left : best.right, best.top, 0, best.height),
         );
       }
     }

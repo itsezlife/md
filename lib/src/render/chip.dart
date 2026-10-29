@@ -6,10 +6,11 @@ import 'package:meta/meta.dart' as meta show internal;
 
 import '../nodes.dart';
 import '../theme.dart';
+import 'inline_image.dart' show paintMarkdownImages;
 
 /// The leading glyph of a chip: one code unit of the painter's text that the
 /// rendered text (selection, copy) does not have. The offset map in
-/// `embed_offset_map.dart` bridges the two.
+/// `text_offset_map.dart` bridges the two.
 ///
 /// The run only reserves the glyph's room (its advance and the [gap] after
 /// it) and is transparent: the glyph itself is drawn by
@@ -442,18 +443,20 @@ extension MarkdownChipPainter on TextPainter {
     return out;
   }
 
-  /// Paints the chip fills, then the text, then the chip glyphs: use in place
-  /// of `paint` for text that may hold a chip.
+  /// Paints the chip fills, then the text and its pictures, then the chip
+  /// glyphs: use in place of `paint` for text that may hold a chip.
   void paintWithChips(Canvas canvas, Offset offset) {
     final geometry = _chipGeometry();
     if (geometry.isEmpty) {
       paint(canvas, offset);
+      paintMarkdownImages(this, canvas, offset);
       return;
     }
     for (final (rrect, color) in _fills(geometry)) {
       canvas.drawRRect(rrect.shift(offset), Paint()..color = color);
     }
     paint(canvas, offset);
+    paintMarkdownImages(this, canvas, offset);
     for (final (rect, glyph) in _glyphs(geometry)) {
       final glyphPainter = glyph.glyphPainter(this);
       glyphPainter.paint(canvas, offset + rect.topLeft);

@@ -7,11 +7,13 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import '../image.dart';
 import '../inline_embed.dart';
 import '../nodes.dart';
 import '../theme.dart';
-import 'inline_embeds.dart';
 import 'chip.dart';
+import 'inline_embeds.dart';
+import 'inline_image.dart';
 
 export 'chip.dart' show MarkdownChipPainter;
 
@@ -50,19 +52,31 @@ TapGestureRecognizer? _buildMentionRecognizer(
 }
 
 /// Whether any of [spans] paints an opaque / translucent fill behind glyphs
-/// (`monospace` / `highlight` backgrounds from [MarkdownThemeData]). Used to
+/// (`monospace` / `highlight` backgrounds and the chip's from
+/// [MarkdownThemeData]). Used to
 /// decide whether the selection tint must paint *above* the cached content
-/// picture so those fills do not hide it.
+/// picture so those fills do not hide it. Pictures do the same; check the
+/// built text with `markdownSpanHasImages`.
 bool markdownSpansPaintOpaqueBackground(Iterable<MD$Span> spans) {
+  const fills =
+      MD$Style(MD$Style.monospace | MD$Style.highlight | MD$Style.chip);
   for (final span in spans) {
-    if (span.style.contains(MD$Style.monospace) ||
-        span.style.contains(MD$Style.highlight) ||
-        span.style.contains(MD$Style.chip)) {
-      return true;
-    }
+    if (span.style & fills != 0) return true;
   }
   return false;
 }
+
+/// The URL of a link or image span, if it has one.
+String? _urlOf(MD$Span span) => switch (span.extra) {
+      <String, Object?>{'url': final String url} => url,
+      _ => null,
+    };
+
+/// The title of a link or image span (`[label](url "title")`), if any.
+String? _titleOf(MD$Span span) => switch (span.extra) {
+      <String, Object?>{'alt': final String title} => title,
+      _ => null,
+    };
 
 /// Helper function to create a [TextSpan] from markdown spans.
 /// This function filters the spans based on the theme's span filter,
@@ -76,6 +90,15 @@ bool markdownSpansPaintOpaqueBackground(Iterable<MD$Span> spans) {
 /// With [revealed] false the `||spoiler||` runs get a transparent colour (see
 /// [MarkdownParagraphSpan]); their metrics are the revealed ones, so no glyph
 /// moves between the two forms. The default shows the text, as before.
+///
+/// With a [MarkdownThemeData.imageResolver], images (and link icons) it
+/// resolves become [MarkdownImageSpan]s: lay the resulting text out with
+/// [layoutMarkdownText] and paint it with [paintMarkdownText] instead of the
+/// plain [TextPainter] methods. Called outside a `MarkdownWidget`, the caller
+/// owns those images: listen to [MarkdownImageSpan.image] to repaint, and
+/// dispose it with the text. An inline embed wins over a picture for the same
+/// image, and nothing inside a `||spoiler||` becomes a picture: a hidden
+/// spoiler conceals text, which a picture is not.
 TextSpan paragraphFromMarkdownSpans({
   required Iterable<MD$Span> spans,
   required MarkdownThemeData theme,
@@ -119,6 +142,28 @@ TextSpan paragraphFromMarkdownSpans({
             style: spanStyle,
           );
         }
+      }
+    }
+    final resolver = theme.imageResolver;
+    final url = _urlOf(span);
+    if (resolver != null &&
+        url != null &&
+        span.style.contains(MD$Style.image) &&
+        !span.style.contains(MD$Style.spoiler)) {
+      final request = MarkdownImageRequest(
+        kind: MarkdownImageKind.image,
+        url: url,
+        text: span.text,
+        title: _titleOf(span),
+      );
+      final image = resolveMarkdownImage(resolver, request);
+      if (image != null) {
+        return MarkdownImageSpan(
+          image: image,
+          request: request,
+          modelText: span.text,
+          textStyle: spanStyle,
+        );
       }
     }
     if (span.style.contains(MD$Style.chip)) {
@@ -177,15 +222,19 @@ TextSpan paragraphFromMarkdownSpans({
   var offset = 0;
   for (final span in filtered) {
     final child = mapper(span);
-    // Offsets are the painter's own: an embed placeholder is one code unit
-    // however long its alt text is (the offset map bridges that for selection).
-    // A chip's glyph is one more code unit of the painter's text.
+    final icon = _linkIcon(span, child, theme);
+    // Offsets are the painter's own: an embed or picture placeholder is one
+    // code unit however long its alt text is (the offset map bridges that for
+    // selection), and so is a link icon. A chip's glyph is one more code unit
+    // of the painter's text.
     final end = offset +
+        (icon == null ? 0 : 1) +
         (child is MarkdownChipSpan
             ? span.text.length + child.markerLength
             : child is TextSpan
                 ? span.text.length
                 : 1);
+    if (icon != null) children.add(icon);
     if (span.style.contains(MD$Style.spoiler)) {
       spoilerChildren.add(children.length);
       // One spoiler is usually several spans (`||a **b** c||`); a fill covers
@@ -217,6 +266,49 @@ TextSpan paragraphFromMarkdownSpans({
   );
   return revealed ? revealedSpan : revealedSpan.withSpoilers(revealed: false);
 }
+
+/// The icon in front of a link's [label] (the span built for [span]), when
+/// the theme's [MarkdownThemeData.imageResolver] gives the link one. A tap on
+/// the icon opens the link, like a tap on its label. A link inside a
+/// `||spoiler||` gets none.
+MarkdownImageSpan? _linkIcon(
+  MD$Span span,
+  InlineSpan label,
+  MarkdownThemeData theme,
+) {
+  final resolver = theme.imageResolver;
+  if (resolver == null ||
+      !span.style.contains(MD$Style.link) ||
+      span.style.contains(MD$Style.spoiler)) {
+    return null;
+  }
+  final url = _urlOf(span);
+  if (url == null) return null;
+  final request = MarkdownImageRequest(
+    kind: MarkdownImageKind.linkIcon,
+    url: url,
+    text: span.text,
+    title: _titleOf(span),
+  );
+  final icon = resolveMarkdownImage(resolver, request);
+  if (icon == null) return null;
+  return MarkdownImageSpan(
+    image: icon,
+    request: request,
+    modelText: '',
+    textStyle: label.style ?? theme.textStyleFor(span.style),
+    recognizer: _recognizerOf(label),
+  );
+}
+
+/// The tap recognizer of [span]: its own, or that of its first piece (a label
+/// split into emoji runs carries it on every piece).
+GestureRecognizer? _recognizerOf(InlineSpan span) => switch (span) {
+      TextSpan(:final GestureRecognizer recognizer) => recognizer,
+      TextSpan(:final List<InlineSpan> children) when children.isNotEmpty =>
+        _recognizerOf(children.first),
+      _ => null,
+    };
 
 /// The [TextSpan] [paragraphFromMarkdownSpans] returns when the paragraph has
 /// a `||spoiler||`: the revealed and the hidden form of one text, and where

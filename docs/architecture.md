@@ -18,7 +18,8 @@ String ──► Parser ──► Node model ──► Render layer ──► Sc
    the selection as logical anchors over the immutable models, and reads geometry
    from mounted render objects for hit-testing/highlight/handles.
 4. **Theme** (`lib/src/theme.dart`) supplies styles and the customization hooks
-   (`builder`, `blockFilter`, `spanFilter`) that the render layer reads.
+   (`builder`, `blockFilter`, `spanFilter`, `imageResolver`, `highlighter`,
+   `cursorResolver`) that the render layer reads.
 
 The parser and node model are stable ground; the render layer was reorganized
 into `lib/src/render/**` (see [rendering](rendering.md)). Selection is the newest
@@ -91,7 +92,7 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
   it never lays out and never re-records.
 - **Text and painter text differ only at an embed.** A resolved embed is one
   U+FFFC in the `TextPainter` and its alt text in `markdownBlockRenderedText`;
-  `MarkdownEmbedOffsets` converts, and is the identity for a block without
+  `MarkdownTextOffsets` converts, and is the identity for a block without
   embeds. See [selection](selection.md#inline-embeds).
 - **Span offsets.** Concatenating a block's `MD$Span.text` reproduces its rendered
   text; `start/end` index that visible text. See [parser](parser.md) for the
@@ -101,9 +102,10 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
 
 Everything public is re-exported from `lib/flutter_md.dart`:
 
-- **Whole-file exports:** `inline_embed.dart`, `markdown.dart`, `nodes.dart`,
-  `parser.dart`, `selection.dart`, `selection_scope.dart`, `spoiler.dart`,
-  `theme.dart`, `widget.dart`. Two of them are the inline layer's contracts:
+- **Whole-file exports:** `chip_style.dart`, `image.dart`, `inline_embed.dart`,
+  `line_clamp.dart`, `markdown.dart`, `nodes.dart`, `parser.dart`,
+  `selection.dart`, `selection_scope.dart`, `spoiler.dart`, `theme.dart`,
+  `widget.dart`. Two of them are the inline layer's contracts:
   - *The embed contract* (`inline_embed.dart`): `MarkdownInlineEmbed`,
     `MarkdownInlineEmbedResolver`, `MarkdownInlineEmbedTarget`,
     `MarkdownInlineEmbedMetrics` and the paint context. The package knows no
@@ -119,12 +121,19 @@ Everything public is re-exported from `lib/flutter_md.dart`:
   (`BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`,
   `SelectableTextBlock`,
   `MultiPainterSelectable`, `SelectableFragment`, `ParagraphGestureHandler`,
-  `SpoilerBlockPainter`, `paragraphFromMarkdownSpans`) and the default painters
+  `SpoilerBlockPainter`, `paragraphFromMarkdownSpans`, `MarkdownImageSpan`,
+  `layoutMarkdownText`, `paintMarkdownText`) and the default painters
   (`BlockPainter$Paragraph … $Spacer`, plus opt-in `$ScrollableTable`).
+- **Curated `show`:** `highlight/engine.dart` (`CodeHighlightTheme`,
+  `SyntaxHighlighter`) and `selection_autoscroll.dart` (the
+  `Markdown*Autoscroll*` types). The highlighter itself is a separate
+  entrypoint, `package:flutter_md/highlight.dart`.
 
 Deliberately **not** public (reachable only via `import 'package:flutter_md/src/render.dart'`,
-annotated `@meta.internal`): `MarkdownPainter`, `MarkdownRenderObject`. Treat the
-`show` list as the supported surface; additions to it are permanent commitments.
+annotated `@meta.internal`): `MarkdownPainter`, `MarkdownRenderObject`,
+`MarkdownImagePool` and the offset helpers in `render/inline_image.dart`. Treat
+the `show` list as the supported surface; additions to it are permanent
+commitments.
 
 ## Where to make a change
 

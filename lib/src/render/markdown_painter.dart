@@ -25,10 +25,11 @@ import 'blocks/paragraph.dart';
 import 'blocks/quote.dart';
 import 'blocks/spacer.dart';
 import 'blocks/table.dart';
-import 'embed_offset_map.dart';
+import 'text_offset_map.dart';
 import 'inline_embeds.dart';
 import 'spoiler_particle_tile.dart';
 import 'spoiler_phase.dart';
+import 'inline_image.dart';
 
 /// A painter for rendering markdown content via blocks and spans.
 @meta.internal
@@ -39,12 +40,14 @@ class MarkdownPainter {
     required MarkdownThemeData theme,
     MarkdownInlineEmbedResolver? embedResolver,
     double devicePixelRatio = 1.0,
+    this.onImageChanged,
   })  : _markdown = markdown,
         _theme = theme,
         _devicePixelRatio = devicePixelRatio,
         _isEmpty = markdown.isEmpty,
         _size = Size.zero {
     _embeds = _hostFor(embedResolver, devicePixelRatio);
+    _images = MarkdownImagePool(_handleImageChanged);
     _rebuild();
   }
 
@@ -75,6 +78,24 @@ class MarkdownPainter {
   /// The pixel ratio embeds and the spoiler dust are rendered at.
   double _devicePixelRatio;
 
+  /// Called when an inline picture changed after layout: `relayout` when its
+  /// size changed (the content must be laid out again), otherwise it only
+  /// needs a repaint. The cached picture is already invalidated.
+  void Function(bool relayout)? onImageChanged;
+
+  /// The inline pictures of this document, reused across rebuilds.
+  late final MarkdownImagePool _images;
+
+  /// The live inline pictures, for tests.
+  @visibleForTesting
+  MarkdownImagePool get debugImages => _images;
+
+  void _handleImageChanged(bool relayout) {
+    _dropPictures();
+    if (relayout) _needsLayout = true;
+    onImageChanged?.call(relayout);
+  }
+
   /// Is the markdown entity empty?
   bool get isEmpty => _isEmpty;
   bool _isEmpty;
@@ -92,8 +113,15 @@ class MarkdownPainter {
   Size get size => _size;
   Size _size;
 
+  /// Horizontal extent hit tests accept: the width the blocks were laid out
+  /// at (never less than the content width).
+  double _hitWidth = 0;
+
   /// Indicates if the layout needs to be recalculated.
   bool _needsLayout = true;
+
+  /// Whether [layout] must run before geometry queries are meaningful.
+  bool get needsLayout => _needsLayout;
 
   Float32List _blockOffsets = Float32List(0);
   List<BlockPainter> _blockPainters = const <BlockPainter>[];
@@ -187,6 +215,7 @@ class MarkdownPainter {
           indent: q.indent,
           theme: theme,
           inlineEmbeds: embeds,
+          blocks: q.blocks,
           children: [
             for (final child in q.blocks)
               _nestedBlockBuilder(
@@ -221,6 +250,7 @@ class MarkdownPainter {
           spans: a.spans,
           theme: theme,
           inlineEmbeds: embeds,
+          blocks: a.blocks,
           children: [
             for (final child in a.blocks)
               _nestedBlockBuilder(child, theme, embeds),
@@ -247,6 +277,14 @@ class MarkdownPainter {
     }
     _embeds?.disposeAll();
     onPaintersRebuilt?.call();
+    _images.nextGeneration();
+    _images.run(() => _buildPainters(harvested, previousBlocks));
+  }
+
+  void _buildPainters(
+    Map<int, double> harvested,
+    List<MD$Block> previousBlocks,
+  ) {
     _needsLayout = true; // Mark that layout needs to be recalculated.
     _size = Size.zero; // Reset size before rebuilding.
     // The indices below name the painters just disposed; [layout] refills them.
@@ -474,7 +512,7 @@ class MarkdownPainter {
   (int, MD$Block)? blockAtLocal(Offset local) {
     if (_needsLayout || _isEmpty || _blockPainters.isEmpty) return null;
     if (local.dx < 0 ||
-        local.dx >= _size.width ||
+        local.dx >= _hitWidth ||
         local.dy < 0 ||
         local.dy >= _size.height) {
       return null;
@@ -491,7 +529,7 @@ class MarkdownPainter {
   bool isSelectableAtLocal(Offset local) {
     if (_needsLayout || _isEmpty || _blockPainters.isEmpty) return false;
     if (local.dx < 0 ||
-        local.dx >= _size.width ||
+        local.dx >= _hitWidth ||
         local.dy < 0 ||
         local.dy >= _size.height) {
       return false;
@@ -680,6 +718,8 @@ class MarkdownPainter {
     final oldBlocks = _markdown.blocks;
     final harvested = _harvestHorizontalPanOffsets();
     _dropPictures();
+    // Pictures resolved by another resolver are stale.
+    if (_theme.imageResolver != theme.imageResolver) _images.clear();
     _markdown = markdown;
     _theme = theme;
     _dropFillTileIfStale();
@@ -702,50 +742,82 @@ class MarkdownPainter {
 
   /// Layouts the markdown content with the given width.
   ///
+  /// For right-to-left text, blocks align their content to the right edge of
+  /// the width they are laid out with. When the content ends up narrower than
+  /// [maxWidth] (loose constraints), the blocks are laid out again at the
+  /// final content width so that edge matches the painted size.
+  ///
   /// When [commitHorizontalPan] is false (dry layout), pans are neither
   /// restored nor written to the durable store — a tentative narrower width
   /// must not clamp remount state before [performLayout] commits.
   Size layout({
     required double maxWidth,
+    double minWidth = 0,
     bool commitHorizontalPan = true,
   }) {
     _layoutCount++;
     if (_isEmpty) {
+      _images.sweep(); // The previous document's pictures are gone.
       _size = Size.zero;
       _needsLayout = false; // No need to layout if the markdown is empty.
       _findSpoilerBlocks();
       return _size; // If the markdown is empty, return zero size.
     }
-    var width = .0, height = .0;
     final blocks = _blockPainters;
     if (_blockOffsets.length != blocks.length) {
       // Resize the block sizes array
       // if it does not match the number of painters.
       _blockOffsets = Float32List(blocks.length);
     }
-    final offsets = _blockOffsets;
-    for (var i = 0; i < blocks.length; i++) {
-      offsets[i] = height;
-      final block = blocks[i];
-      final size = block.layout(maxWidth);
-      if (commitHorizontalPan) {
-        if (block case final HorizontallyPannableBlock pannable) {
-          final source = _sourceIndices[i];
-          final saved = _savedHorizontalPan(source) ?? 0.0;
+    _images.clearLayouts();
+    var size = _images.run(() => _layoutBlocks(maxWidth));
+    var laidOutWidth = maxWidth;
+    if (_theme.textDirection == TextDirection.rtl) {
+      final target = math.max(size.width, minWidth);
+      // Re-laying out at a width no smaller than every block's content keeps
+      // the same line breaks; only the right edge moves.
+      if (target < maxWidth) {
+        _images.clearLayouts();
+        size = _images.run(() => _layoutBlocks(laidOutWidth = target));
+      }
+    }
+    // Every block has asked for its pictures by now; drop the rest.
+    _images.sweep();
+    // Right-to-left glyphs sit against the right edge of the width the
+    // blocks were laid out at, which can exceed the content width (tight or
+    // min-width constraints), so hit tests must accept that whole width.
+    _hitWidth =
+        laidOutWidth.isFinite ? math.max(size.width, laidOutWidth) : size.width;
+    if (commitHorizontalPan) {
+      // Restore against the final layout's extents, then rewrite local +
+      // controller from live painters (drops orphan indices, keeps durable
+      // pans while !canPan).
+      for (var i = 0; i < blocks.length; i++) {
+        if (blocks[i] case final HorizontallyPannableBlock pannable) {
+          final saved = _savedHorizontalPan(_sourceIndices[i]) ?? 0.0;
           pannable.restoreScrollOffset(saved);
         }
       }
-      width = math.max(width, size.width);
-      height += size.height;
-    }
-    if (commitHorizontalPan) {
-      // Restore already applied above; rewrite local + controller from live
-      // painters (drops orphan indices, keeps durable pans while !canPan).
       syncHorizontalPanStore();
     }
     _needsLayout = false; // No need to layout if the markdown is empty.
     _findSpoilerBlocks();
-    return _size = Size(width, height);
+    return _size = size;
+  }
+
+  /// Lays out every block at [width], stacking them vertically, and returns
+  /// the content size.
+  Size _layoutBlocks(double width) {
+    var contentWidth = .0, height = .0;
+    final blocks = _blockPainters;
+    final offsets = _blockOffsets;
+    for (var i = 0; i < blocks.length; i++) {
+      offsets[i] = height;
+      final size = blocks[i].layout(width);
+      contentWidth = math.max(contentWidth, size.width);
+      height += size.height;
+    }
+    return Size(contentWidth, height);
   }
 
   /// Vertical positions where each visual text line ends, top-down.
@@ -1102,6 +1174,10 @@ class MarkdownPainter {
     return picture;
   }
 
+  /// The cached glyph picture reused across repaints at the same size.
+  @visibleForTesting
+  Picture? get debugCachedPicture => _revealedPicture ?? _hiddenPicture;
+
   /// The markdown content to paint.
   ///
   /// Non-pannable blocks are recorded into cached glyph [Picture]s keyed by
@@ -1240,7 +1316,7 @@ class MarkdownPainter {
         _ => false,
       };
       for (final (painter, origin, _) in _textFragments(block)) {
-        final offsets = MarkdownEmbedOffsets.of(painter);
+        final offsets = MarkdownTextOffsets.of(painter);
         if (offsets.isIdentity) continue;
         final boxes = painter.inlinePlaceholderBoxes;
         if (boxes == null) continue;
@@ -1277,7 +1353,7 @@ class MarkdownPainter {
   // the paragraph's.
   MarkdownInlineEmbedPaintContext _paintContextFor(
     TextPainter painter,
-    MarkdownEmbedEntry entry,
+    MarkdownTextEntry entry,
     double opacity,
   ) {
     final color = entry.span?.style?.color ?? painter.text?.style?.color;
@@ -1300,7 +1376,7 @@ class MarkdownPainter {
     for (var i = 0; i < _blockPainters.length; i++) {
       final visible = !(overflow && _blockOffsets[i] > size.height);
       for (final (painter, _, _) in _textFragments(_blockPainters[i])) {
-        for (final entry in MarkdownEmbedOffsets.of(painter).entries) {
+        for (final entry in MarkdownTextOffsets.of(painter).entries) {
           final embed = entry.span?.embed;
           if (embed == null) continue;
           if (embed.visible != visible) embed.visible = visible;
@@ -1351,6 +1427,7 @@ class MarkdownPainter {
       Map<int, double>.unmodifiable(_horizontalPanBySource);
 
   void dispose() {
+    _images.dispose();
     _dropPictures();
     _releaseFillTile();
     _horizontalPanBySource.clear();

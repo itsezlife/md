@@ -26,6 +26,14 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// Opens a tab whose hidden spoilers keep their dust moving: it never
+  /// settles while they are on screen, so pump past the tab switch instead.
+  Future<void> openAnimatedTab(WidgetTester tester, String label) async {
+    await tester.tap(find.text(label));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+  }
+
   testWidgets('App boots on the Editor tab without exceptions', (tester) async {
     await pumpApp(tester);
 
@@ -55,10 +63,29 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a selection across a spoiler reveals it and stops the dust', (
+    tester,
+  ) async {
+    await pumpApp(tester);
+    await openAnimatedTab(tester, 'Selection');
+
+    // Document A holds the spoilers; select all of it.
+    tester
+        .state<MarkdownSelectionScopeState>(
+          find.byType(MarkdownSelectionScope).first,
+        )
+        .controller
+        .selectAll();
+    // Settles only once the reveal ripple is done and no hidden spoiler is
+    // left to drive the dust clock.
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('every showcase tab builds without exceptions', (tester) async {
     await pumpApp(tester);
 
-    await openTab(tester, 'Selection');
+    await openAnimatedTab(tester, 'Selection');
     expect(find.byType(LoremTab), findsOneWidget);
     expect(tester.takeException(), isNull);
 

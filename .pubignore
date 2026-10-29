@@ -5,7 +5,6 @@ benchmark/.render_baseline.txt
 .vscode/
 build/
 coverage/
-credentials.json
 *.exe
 benchmark/
 benchmark_compare/
@@ -16,7 +15,23 @@ example/windows/
 example/macos/
 example/linux/
 docs/
+# Agent orientation notes; they link into docs/, which is not published.
+AGENTS.md
 # Prism codegen tooling — not part of the published package. (.pubignore does
 # not inherit .gitignore, so node_modules must be excluded explicitly here.)
 tool/
 node_modules/
+
+# Credentials — .pubignore replaces .gitignore, so they are repeated here
+credentials.json
+service-account*.json
+*.key
+*.pem
+*.p12
+*.jks
+*.keystore
+
+# Test and tooling output
+reports/
+doc/api/
+*.vm.json

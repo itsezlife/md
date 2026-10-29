@@ -10,7 +10,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
-import 'embed_offset_map.dart';
+import 'text_offset_map.dart';
+import 'inline_image.dart';
 import 'span_builder.dart';
 
 /// A class for painting blocks in markdown.
@@ -211,11 +212,11 @@ mixin SelectableTextBlock
   // The paragraph's embeds: its painter text has one U+FFFC for each, while
   // every offset this mixin takes or returns is in the rendered text, where
   // the embed is its alt text. The identity for a paragraph with none.
-  MarkdownEmbedOffsets get _offsets =>
-      MarkdownEmbedOffsets.of(selectionPainter);
+  MarkdownTextOffsets get _offsets => MarkdownTextOffsets.of(selectionPainter);
 
   @override
-  String get renderedText => _offsets.renderedText(selectionPainter.plainText);
+  String get renderedText =>
+      MarkdownTextOffsets.renderedTextOf(selectionPainter);
 
   @override
   int offsetForLocalPosition(Offset local) =>
@@ -223,7 +224,7 @@ mixin SelectableTextBlock
 
   @override
   (int, TextAffinity) positionAndAffinityForLocal(Offset local) {
-    return _renderedPosition(selectionPainter, local - selectionOrigin);
+    return markdownPositionForLocal(selectionPainter, local - selectionOrigin);
   }
 
   /// The rendered ranges a selection boundary never splits: the alt text of
@@ -259,10 +260,8 @@ mixin SelectableTextBlock
   }
 
   @override
-  TextRange wordBoundaryForLocal(Offset local) => _wordBoundaryIn(
-        selectionPainter,
-        local - selectionOrigin,
-      );
+  TextRange wordBoundaryForLocal(Offset local) =>
+      markdownWordBoundary(selectionPainter, local - selectionOrigin);
 
   @override
   bool isLinkAtLocal(Offset local) =>
@@ -296,12 +295,12 @@ class SelectableFragment {
 
   /// The run's text as selection and copy see it: [painter]'s text with each
   /// inline embed's placeholder replaced by its alt text.
-  String get renderedText => _offsets.renderedText(painter.plainText);
+  String get renderedText => MarkdownTextOffsets.renderedTextOf(painter);
 
   /// Length of this run's text, in the same terms as [renderedText].
   int get length => _offsets.renderedLength(painter.plainText.length);
 
-  MarkdownEmbedOffsets get _offsets => MarkdownEmbedOffsets.of(painter);
+  MarkdownTextOffsets get _offsets => MarkdownTextOffsets.of(painter);
 
   /// One-past-the-last index of this run's text in the block's rendered text.
   int get textEnd => textStart + length;
@@ -363,9 +362,10 @@ mixin MultiPainterSelectable
         (local.dx - fragment.origin.dx).clamp(0.0, fragment.painter.width);
     final dy =
         (local.dy - fragment.origin.dy).clamp(0.0, fragment.painter.height);
-    final (rendered, affinity) =
-        _renderedPosition(fragment.painter, Offset(dx, dy));
-    return (fragment.textStart + rendered.clamp(0, fragment.length), affinity);
+    final painter = fragment.painter;
+    final (inner, affinity) = markdownPositionForLocal(painter, Offset(dx, dy));
+    final offset = fragment.textStart + inner.clamp(0, fragment.length);
+    return (offset, affinity);
   }
 
   /// The rendered ranges a selection boundary never splits: the alt text of
@@ -426,11 +426,12 @@ mixin MultiPainterSelectable
   TextRange wordBoundaryForLocal(Offset local) {
     final fragment = _nearestFragment(local);
     if (fragment == null) return const TextRange(start: 0, end: 0);
-    final wb = _wordBoundaryIn(fragment.painter, local - fragment.origin);
+    final word =
+        markdownWordBoundary(fragment.painter, local - fragment.origin);
     // Keep the word within its own fragment (never cross a cell/item boundary).
     return TextRange(
-      start: fragment.textStart + wb.start.clamp(0, fragment.length),
-      end: fragment.textStart + wb.end.clamp(0, fragment.length),
+      start: fragment.textStart + word.start.clamp(0, fragment.length),
+      end: fragment.textStart + word.end.clamp(0, fragment.length),
     );
   }
 
@@ -530,35 +531,8 @@ List<Rect> _highlightRects(
 /// and still be one run of that line: layout rounds to a fraction of a pixel.
 const double _kSameLineEpsilon = 0.5;
 
-/// The rendered offset and affinity at [local], a point in [painter]'s own
-/// coordinates.
-///
-/// Over an embed (the room it reserved or the square it is drawn into, which
-/// pokes out above and below) the offset is *inside* its alt text, whichever
-/// half of the embed the point is in, so the embed takes part in the selection
-/// whichever way the drag goes: the selection snaps a first boundary down to
-/// the alt's start and a last boundary up to its end. An alt of fewer than two
-/// code units has no inside, and the point resolves to the nearer edge.
-(int, TextAffinity) _renderedPosition(TextPainter painter, Offset local) {
-  final offsets = MarkdownEmbedOffsets.of(painter);
-  final entry = offsets.entryAt(painter, local);
-  if (entry == null) {
-    final position = painter.getPositionForOffset(local);
-    return (offsets.toRendered(position.offset), position.affinity);
-  }
-  if (entry.alt.length >= 2) {
-    return (entry.renderedStart + 1, TextAffinity.downstream);
-  }
-  final box = painter.inlinePlaceholderBoxes![entry.placeholderIndex];
-  final nearIsLeft = local.dx < box.toRect().center.dx;
-  final before = nearIsLeft == (box.direction == TextDirection.ltr);
-  return before
-      ? (entry.renderedStart, TextAffinity.downstream)
-      : (entry.renderedEnd, TextAffinity.upstream);
-}
-
 /// The alt text ranges of [offsets], moved [shift] code units later.
-List<TextRange> _atomicRangesOf(MarkdownEmbedOffsets offsets, int shift) =>
+List<TextRange> _atomicRangesOf(MarkdownTextOffsets offsets, int shift) =>
     <TextRange>[
       for (final entry in offsets.entries)
         if (entry.alt.length >= 2)
@@ -568,21 +542,82 @@ List<TextRange> _atomicRangesOf(MarkdownEmbedOffsets offsets, int shift) =>
           ),
     ];
 
-/// The word range, in rendered-text offsets, at [local] in [painter]. An embed
-/// is one word: its whole alt text.
-TextRange _wordBoundaryIn(TextPainter painter, Offset local) {
-  final offsets = MarkdownEmbedOffsets.of(painter);
-  final entry = offsets.entryAt(painter, local);
-  if (entry != null) {
-    return TextRange(start: entry.renderedStart, end: entry.renderedEnd);
+/// Selectable fragments and rendered text of a quote / alert body made of
+/// nested [children] painted at block-local [origins].
+///
+/// Children are joined by `\n`, skipping those with empty text, exactly like
+/// `markdownBlockRenderedText` walks `MD$Quote.blocks` / `MD$Alert.blocks`.
+/// [modelTexts] (one per child, or null) is the model-side rendered text of
+/// each child: it keeps the offset space in sync when a host builder returns a
+/// child painter that exposes no selectable text. A child laid out to an
+/// empty size paints nothing, so its text keeps its offsets but contributes
+/// no fragments (nothing to highlight or hit).
+@meta.internal
+(List<SelectableFragment>, String) nestedBlockFragments(
+  List<BlockPainter> children,
+  List<Offset> origins,
+  List<String>? modelTexts,
+) {
+  final frags = <SelectableFragment>[];
+  final parts = <String>[];
+  var textStart = 0;
+  for (var i = 0; i < children.length; i++) {
+    final child = children[i];
+    final origin = origins[i];
+    final String text;
+    var own = const <SelectableFragment>[];
+    switch (child) {
+      case MultiPainterSelectable():
+        text = child.renderedText;
+        own = child.fragments;
+      case SelectableTextBlock():
+        text = child.renderedText;
+        own = <SelectableFragment>[
+          SelectableFragment(child.selectionPainter, child.selectionOrigin, 0),
+        ];
+      case SelectableBlockPainter():
+        text = child.renderedText;
+      default:
+        text = modelTexts?[i] ?? '';
+    }
+    if (text.isEmpty) continue;
+    if (!child.size.isEmpty) {
+      for (final f in own) {
+        frags.add(SelectableFragment(
+          f.painter,
+          origin + f.origin,
+          textStart + f.textStart,
+        ));
+      }
+    }
+    parts.add(text);
+    textStart += text.length + 1;
   }
-  final position = painter.getPositionForOffset(local);
-  final word = painter.getWordBoundary(TextPosition(offset: position.offset));
-  return TextRange(
-    start: offsets.toRendered(word.start),
-    end: offsets.toRendered(word.end),
-  );
+  return (frags, parts.join('\n'));
 }
+
+/// Glyph-tight hit test over nested [children] painted at block-local
+/// [origins]: each selectable child answers with its own
+/// [SelectableBlockPainter.hitsRenderedTextAt] policy.
+@meta.internal
+bool nestedBlocksHitRenderedText(
+  List<BlockPainter> children,
+  List<Offset> origins,
+  Offset local,
+) {
+  for (var i = 0; i < children.length; i++) {
+    final child = children[i];
+    if (child is! SelectableBlockPainter || child.size.isEmpty) continue;
+    if (child.hitsRenderedTextAt(local - origins[i])) return true;
+  }
+  return false;
+}
+
+/// Whether [local] (text-painter coordinates) lies inside any glyph line box
+/// of [painter]'s full rendered range. Uses the per-layout glyph-box cache.
+@meta.internal
+bool painterHitsGlyphBoxes(TextPainter painter, Offset local) =>
+    _painterHitsGlyphBoxes(painter, local);
 
 /// Whether [local] (text-painter coordinates) lies inside any glyph line box
 /// of [painter]'s full rendered range.
@@ -640,9 +675,7 @@ bool _spanHasRecognizerAt(TextPainter painter, Offset local) {
       local.dy > size.height) {
     return false;
   }
-  final span =
-      painter.text?.getSpanForPosition(painter.getPositionForOffset(local));
-  return span is TextSpan && span.recognizer != null;
+  return markdownSpanRecognizer(markdownSpanAtLocal(painter, local)) != null;
 }
 
 /// Shortest distance from [point] to [rect] (0 when the point is inside).
@@ -664,18 +697,28 @@ double _distanceToRect(Offset point, Rect rect) {
 /// [BlockPainter.handleTapUp] can match down and up on the same span.
 mixin ParagraphGestureHandler {
   /// The [InlineSpan] under [event] within [painter], or null if none.
+  ///
+  /// [origin] is the block-local offset where [painter] is painted (for
+  /// example, the right-aligned position of right-to-left text).
+  ///
+  /// A point outside the painter's box hits nothing: the nearest-position
+  /// lookup would otherwise snap it onto the glyph at that end of the line,
+  /// so a tap in the empty space before right-to-left text would open a link
+  /// that happens to end the line.
   @protected
   InlineSpan? hitTestInlineSpanWithPointerEvent(
-      PointerEvent event, TextPainter painter) {
-    return inlineSpanAt(painter, event.localPosition);
+    PointerEvent event,
+    TextPainter painter, {
+    Offset origin = Offset.zero,
+  }) {
+    final local = event.localPosition - origin;
+    if (!(Offset.zero & painter.size).contains(local)) return null;
+    return markdownSpanAtLocal(painter, local);
   }
 }
 
-/// The [InlineSpan] under [local] in [painter]: the embed's placeholder when
-/// [local] is in an embed's box, which the painter's own answer would miss in
-/// the half of the box nearer the text after it.
-InlineSpan? inlineSpanAt(TextPainter painter, Offset local) {
-  final entry = MarkdownEmbedOffsets.of(painter).entryAt(painter, local);
-  if (entry != null) return entry.span;
-  return painter.text?.getSpanForPosition(painter.getPositionForOffset(local));
-}
+/// The [InlineSpan] under [local] in [painter]: the placeholder (an embed or a
+/// picture) when [local] is in its box, which the painter's own answer would
+/// miss in the half of the box nearer the text after it.
+InlineSpan? inlineSpanAt(TextPainter painter, Offset local) =>
+    markdownSpanAtLocal(painter, local);

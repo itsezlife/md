@@ -6,6 +6,8 @@ import 'package:flutter_md/src/render/markdown_painter.dart';
 import 'package:flutter_md/src/render/markdown_render_object.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import '../golden_comparator.dart';
+
 import 'fake_inline_embed_resolver.dart';
 
 /// Tests run in Ahem: every glyph is a `fontSize` square, so `a ` is 26 logical
@@ -383,7 +385,7 @@ void main() {
     late GoldenFileComparator previous;
     setUpAll(() {
       previous = goldenFileComparator;
-      goldenFileComparator = LocalFileComparator(
+      goldenFileComparator = PlatformGoldenComparator(
         Uri.file(
           '${Directory.current.path}/test/render/embed_paint_test.dart',
         ),
