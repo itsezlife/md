@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
-import 'embed_offset_map.dart';
+import 'text_offset_map.dart';
 import 'inline_image.dart';
 import 'span_builder.dart';
 
@@ -212,11 +212,11 @@ mixin SelectableTextBlock
   // The paragraph's embeds: its painter text has one U+FFFC for each, while
   // every offset this mixin takes or returns is in the rendered text, where
   // the embed is its alt text. The identity for a paragraph with none.
-  MarkdownEmbedOffsets get _offsets =>
-      MarkdownEmbedOffsets.of(selectionPainter);
+  MarkdownTextOffsets get _offsets => MarkdownTextOffsets.of(selectionPainter);
 
   @override
-  String get renderedText => _offsets.renderedText(selectionPainter.plainText);
+  String get renderedText =>
+      MarkdownTextOffsets.renderedTextOf(selectionPainter);
 
   @override
   int offsetForLocalPosition(Offset local) =>
@@ -295,12 +295,12 @@ class SelectableFragment {
 
   /// The run's text as selection and copy see it: [painter]'s text with each
   /// inline embed's placeholder replaced by its alt text.
-  String get renderedText => _offsets.renderedText(painter.plainText);
+  String get renderedText => MarkdownTextOffsets.renderedTextOf(painter);
 
   /// Length of this run's text, in the same terms as [renderedText].
   int get length => _offsets.renderedLength(painter.plainText.length);
 
-  MarkdownEmbedOffsets get _offsets => MarkdownEmbedOffsets.of(painter);
+  MarkdownTextOffsets get _offsets => MarkdownTextOffsets.of(painter);
 
   /// One-past-the-last index of this run's text in the block's rendered text.
   int get textEnd => textStart + length;
@@ -532,7 +532,7 @@ List<Rect> _highlightRects(
 const double _kSameLineEpsilon = 0.5;
 
 /// The alt text ranges of [offsets], moved [shift] code units later.
-List<TextRange> _atomicRangesOf(MarkdownEmbedOffsets offsets, int shift) =>
+List<TextRange> _atomicRangesOf(MarkdownTextOffsets offsets, int shift) =>
     <TextRange>[
       for (final entry in offsets.entries)
         if (entry.alt.length >= 2)

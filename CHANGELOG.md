@@ -29,10 +29,15 @@ The release tag is `v0.7.0`; depend on it by git ref as described under
   a recycled element lands on the incoming document id.
 
 ### Reconciled
-- **CHANGED**: one offset map for every placeholder. `MarkdownEmbedOffsets`
-  now also maps pictures and link icons, and upstream's model ↔ painter
-  helpers (`markdownModelText`, `markdownPainterOffset`, …) read it, so
-  embeds, pictures and chip glyphs agree in one paragraph. A picture keeps
+- **CHANGED**: one offset map for every placeholder. The fork's map, renamed
+  `MarkdownTextOffsets` (`text_offset_map.dart`, `@meta.internal`; it was
+  `MarkdownEmbedOffsets`), now also maps pictures and link icons, and
+  upstream's model ↔ painter helpers (`markdownModelText`,
+  `markdownPainterOffset`, …) read it, so embeds, pictures and chip glyphs
+  agree in one paragraph. The rendered text is built once per laid-out text,
+  as upstream's map did, and a picture's alt text is atomic in the controller
+  like an embed's, so a keyboard step no longer stops inside it (upstream's
+  known limitation). A picture keeps
   upstream's hit rule (the edge on the hit side); an embed keeps the fork's
   (inside its alt text).
 - **CHANGED**: `paintMarkdownText` paints chip fills and glyphs too

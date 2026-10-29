@@ -4,7 +4,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render/chip.dart';
-import 'package:flutter_md/src/render/embed_offset_map.dart';
+import 'package:flutter_md/src/render/text_offset_map.dart';
 import 'package:flutter_md/src/render/span_builder.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -146,7 +146,7 @@ void main() => group('Inline chip', () {
         // Glyph and room are code units of the painter's text, none of the
         // rendered.
         expect(painterText.length, 19 + chip.markerLength);
-        final map = MarkdownEmbedOffsets.ofSpan(root);
+        final map = MarkdownTextOffsets.ofSpan(root);
         expect(map.renderedText(painterText), 'Hey Chip label done');
         expect(map.renderedLength(painterText.length), 19);
         expect(map.toPainter(4), 4);
@@ -228,7 +228,7 @@ void main() => group('Inline chip', () {
         expect(glyph.style!.fontSize, 18);
         expect(glyph.style!.letterSpacing, 4);
         final painterText = root.toPlainText(includeSemanticsLabels: false);
-        final map = MarkdownEmbedOffsets.ofSpan(root);
+        final map = MarkdownTextOffsets.ofSpan(root);
         expect(map.renderedText(painterText), 'Hey Chip label done');
       });
 
@@ -431,7 +431,7 @@ void main() => group('Inline chip', () {
           expect(b.renderedText, 'Hey Chip,');
           // A range over the chip is the painter range of the label and the
           // room around it; the offsets round-trip.
-          final map = MarkdownEmbedOffsets.of(b.painter);
+          final map = MarkdownTextOffsets.of(b.painter);
           final text =
               b.painter.text!.toPlainText(includeSemanticsLabels: false);
           expect(map.renderedText(text), 'Hey Chip,');

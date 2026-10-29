@@ -92,7 +92,7 @@ These are cross-cutting; each subsystem doc repeats the ones it owns.
   it never lays out and never re-records.
 - **Text and painter text differ only at an embed.** A resolved embed is one
   U+FFFC in the `TextPainter` and its alt text in `markdownBlockRenderedText`;
-  `MarkdownEmbedOffsets` converts, and is the identity for a block without
+  `MarkdownTextOffsets` converts, and is the identity for a block without
   embeds. See [selection](selection.md#inline-embeds).
 - **Span offsets.** Concatenating a block's `MD$Span.text` reproduces its rendered
   text; `start/end` index that visible text. See [parser](parser.md) for the

@@ -16,7 +16,7 @@ import 'parser/math_test.dart' as math_test;
 import 'parser/parser_test.dart' as parser_test;
 import 'parser/regression_test.dart' as regression_test;
 import 'parser/streaming_test.dart' as streaming_test;
-import 'render/embed_offset_map_test.dart' as embed_offset_map_test;
+import 'render/text_offset_map_test.dart' as text_offset_map_test;
 import 'render/embed_paint_test.dart' as embed_paint_test;
 import 'render/emoji_run_test.dart' as emoji_run_test;
 import 'render/horizontal_pan_test.dart' as horizontal_pan_test;
@@ -90,7 +90,7 @@ void main() => group('Unit', () {
       mention_paint_test.main();
       chip_test.main();
       horizontal_pan_test.main();
-      embed_offset_map_test.main();
+      text_offset_map_test.main();
       inline_embed_test.main();
       inline_layers_test.main();
       embed_paint_test.main();

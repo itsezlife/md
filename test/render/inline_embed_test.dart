@@ -2,7 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render/block_painter.dart' show inlineSpanAt;
-import 'package:flutter_md/src/render/embed_offset_map.dart';
+import 'package:flutter_md/src/render/text_offset_map.dart';
 import 'package:flutter_md/src/render/inline_embeds.dart';
 import 'package:flutter_md/src/render/markdown_painter.dart';
 import 'package:flutter_md/src/render/markdown_render_object.dart';
@@ -47,13 +47,13 @@ BlockPainter$Paragraph _paragraph(
 
 /// The room the paragraph reserved for the [index]th embed.
 Rect _layoutBox(BlockPainter$Paragraph block, int index) {
-  final entry = MarkdownEmbedOffsets.of(block.painter).entries[index];
+  final entry = MarkdownTextOffsets.of(block.painter).entries[index];
   return block.painter.inlinePlaceholderBoxes![entry.placeholderIndex].toRect();
 }
 
 /// The square the [index]th embed is drawn into.
 Rect _paintRect(BlockPainter$Paragraph block, int index) {
-  final entry = MarkdownEmbedOffsets.of(block.painter).entries[index];
+  final entry = MarkdownTextOffsets.of(block.painter).entries[index];
   return entry.span!.paintRectFor(_layoutBox(block, index));
 }
 
@@ -570,7 +570,7 @@ void main() {
         actual.boxesForRange(0, actual.renderedText.length),
         expected.boxesForRange(0, expected.renderedText.length),
       );
-      expect(MarkdownEmbedOffsets.of(actual.painter).isIdentity, isTrue);
+      expect(MarkdownTextOffsets.of(actual.painter).isIdentity, isTrue);
     }
 
     test('a scheme the resolver does not know', () {
@@ -605,7 +605,7 @@ void main() {
       const source = 'a ![xyz](emoji:1) b';
       final block = _paragraph(source);
       expect(block.renderedText, 'a xyz b');
-      expect(MarkdownEmbedOffsets.of(block.painter).isIdentity, isTrue);
+      expect(MarkdownTextOffsets.of(block.painter).isIdentity, isTrue);
       expect(block.painter.inlinePlaceholderBoxes, anyOf(isNull, isEmpty));
     });
 
@@ -615,7 +615,7 @@ void main() {
         resolver: FakeInlineEmbedResolver(),
       );
       expect(block.renderedText, 'a x b yy c z');
-      expect(MarkdownEmbedOffsets.of(block.painter).entries, hasLength(2));
+      expect(MarkdownTextOffsets.of(block.painter).entries, hasLength(2));
       expect(block.painter.plainText, 'a ￼ b yy c ￼');
     });
   });

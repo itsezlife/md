@@ -168,7 +168,7 @@ block painter's `renderedText`/fragment offsets **must** match it:
 
 A resolved image span is one U+FFFC code unit in the `TextPainter`'s text while
 `markdownBlockRenderedText` has its alt text (any number of code units). The
-block painter mixins bridge the two with `MarkdownEmbedOffsets`, so
+block painter mixins bridge the two with `MarkdownTextOffsets`, so
 `renderedText`, `positionAndAffinityForLocal`, `caretRectFor`, `boxesForRange`
 and `wordBoundaryForLocal` still speak rendered offsets; extraction never reads
 a painter. The alt text is **atomic**, and the controller enforces it on the

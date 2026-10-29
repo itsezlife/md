@@ -13,11 +13,11 @@ canvas via one `RenderBox` and a list of `BlockPainter`s — **no widget per blo
 |---|---|
 | `block_painter.dart` | The framework: `BlockPainter`, `SelectableBlockPainter`, `HorizontallyPannableBlock`, mixins `SelectableTextBlock` / `MultiPainterSelectable` / `ParagraphGestureHandler`, class `SelectableFragment`, `PannedContent` (`@meta.internal`: the pan transform a block gives the live embed pass), private `_distanceToRect`. |
 | `span_builder.dart` | `paragraphFromMarkdownSpans({spans, theme, textStyle, revealed})` → `TextSpan` (a `MarkdownParagraphSpan` when the paragraph has a `\|\|spoiler\|\|`); the `TextPainter` extension `MarkdownSpoilerPainter`; private tap recognizers (`onLinkTap` from `span.extra['url']` for a link, `onMentionTap` from the scheme, id and name in `extra` for a mention-class span; neither fires under a hidden spoiler); emits a `MarkdownImageSpan` per image / link icon the theme's `imageResolver` resolves (an embed wins for the same image; nothing under a spoiler). |
-| `inline_image.dart` | `MarkdownImageSpan` (a `PlaceholderSpan`), `layoutMarkdownText` / `paintMarkdownText`, the hit-test and offset helpers (which read `MarkdownEmbedOffsets`), and the `@meta.internal` `MarkdownImagePool`. |
+| `inline_image.dart` | `MarkdownImageSpan` (a `PlaceholderSpan`), `layoutMarkdownText` / `paintMarkdownText`, the hit-test and offset helpers (which read `MarkdownTextOffsets`), and the `@meta.internal` `MarkdownImagePool`. |
 | `spoiler_particle_field.dart` / `spoiler_particle_tile.dart` | `SpoilerParticleField` (the dust simulation) and `SpoilerParticleTile` / `SpoilerParticleTiles` (the live tile image and its per-process registry). |
 | `spoiler_phase.dart` | `SpoilerPhase` (`$Hidden` / `$Revealing` / `$Revealed`) — what the painter draws for the document's spoilers. |
 | `inline_embeds.dart` | `MarkdownEmbedSpan` (the placeholder span of one embed) and `MarkdownEmbedHost` (owns the embeds a painter resolved and forwards their signals), both `@meta.internal`. |
-| `embed_offset_map.dart` | `MarkdownEmbedOffsets`: the one map between painter text offsets and rendered text offsets, for embeds, pictures, link icons and chip glyphs (`@meta.internal`). |
+| `text_offset_map.dart` | `MarkdownTextOffsets`: the one map between painter text offsets and rendered text offsets, for embeds, pictures, link icons and chip glyphs (`@meta.internal`). |
 | `markdown_painter.dart` | `MarkdownPainter` (`@meta.internal`) — the orchestrator. |
 | `markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface`; plus `_paintNothing`. |
 | `../spoiler.dart` | `MarkdownSpoilerController` — which documents are revealed; public. |
@@ -120,7 +120,7 @@ implementation; a host adapts its own asset type to it and hands it over as
 - **Paint.** `MarkdownPainter.paintEmbeds` is the third pass, run by the render
   object last, after `_painter.paint` and the above-content tint. It walks
   each block's text fragments, reads `TextPainter.inlinePlaceholderBoxes` through
-  `MarkdownEmbedOffsets`, and calls `embed.paint(canvas, span.paintRectFor(box),
+  `MarkdownTextOffsets`, and calls `embed.paint(canvas, span.paintRectFor(box),
   context)`. The context's tint is the colour of the text the embed sits in (its
   span's, else the paragraph's); its opacity is `embedOpacityAt(rect)` (0 under a
   hidden spoiler, the ripple's progress while revealing, 1 elsewhere). The
@@ -147,7 +147,7 @@ implementation; a host adapts its own asset type to it and hands it over as
   itself has no host to ask: the host is internal, so it shows alt text.
 - **Offsets.** The placeholder is one U+FFFC in the painter text and its alt
   text is the span text in `renderedText`. `SelectableTextBlock` and
-  `MultiPainterSelectable` convert through `MarkdownEmbedOffsets` (identity for
+  `MultiPainterSelectable` convert through `MarkdownTextOffsets` (identity for
   a paragraph without embeds); see [selection](selection.md#inline-embeds).
   `SelectableFragment.length` and `.renderedText` are in rendered terms.
 

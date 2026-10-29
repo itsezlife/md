@@ -5,10 +5,11 @@ import 'chip.dart';
 import 'inline_embeds.dart';
 import 'inline_image.dart';
 
-/// Where one embed sits in a paragraph, in both offset spaces.
+/// Where one placeholder or chip run sits in a paragraph, in both offset
+/// spaces: an inline embed, a picture or link icon, or a chip's glyph or room.
 @meta.internal
-final class MarkdownEmbedEntry {
-  const MarkdownEmbedEntry._({
+final class MarkdownTextEntry {
+  const MarkdownTextEntry._({
     required this.span,
     required this.placeholderIndex,
     required this.painterStart,
@@ -73,29 +74,31 @@ final class MarkdownEmbedEntry {
   }
 }
 
-/// The two offset spaces of a paragraph with embeds, and the map between them.
+/// The two offset spaces of a paragraph, and the map between them.
 ///
-/// The `TextPainter` lays out one U+FFFC code unit per embed, but selection,
-/// copy and hit-testing speak the block's *rendered text*, where the embed is
-/// its alt text and may be any number of code units (the model's span text,
-/// see `markdownBlockRenderedText`). This value converts offsets between
-/// the two, and is the identity for a paragraph with no embed.
+/// The `TextPainter` lays out one U+FFFC code unit per embed or picture, and
+/// code units for a chip's glyph and room that have no text. Selection, copy
+/// and hit-testing speak the block's *rendered text*, where an embed or a
+/// picture is its alt text and may be any number of code units, and a chip is
+/// its label (the model's span text, see `markdownBlockRenderedText`). This
+/// value converts offsets between the two, and is the identity for a
+/// paragraph with none of them.
 ///
 /// The alt text is atomic: no offset the map hands to the painter lies inside
 /// it. A rendered offset strictly inside an alt text maps to the embed's near
 /// edge when it starts a range and to the far edge when it ends one.
 @meta.internal
-final class MarkdownEmbedOffsets {
-  const MarkdownEmbedOffsets._(this.entries);
+final class MarkdownTextOffsets {
+  const MarkdownTextOffsets._(this.entries);
 
   /// The map of a paragraph without embeds.
-  static const MarkdownEmbedOffsets identity =
-      MarkdownEmbedOffsets._(<MarkdownEmbedEntry>[]);
+  static const MarkdownTextOffsets identity =
+      MarkdownTextOffsets._(<MarkdownTextEntry>[]);
 
   /// The map of [text], the span a `TextPainter` was given.
-  factory MarkdownEmbedOffsets.ofSpan(InlineSpan? text) {
+  factory MarkdownTextOffsets.ofSpan(InlineSpan? text) {
     if (text == null) return identity;
-    final entries = <MarkdownEmbedEntry>[];
+    final entries = <MarkdownTextEntry>[];
     var painterOffset = 0;
     var placeholders = 0;
     var shift = 0; // rendered minus painter offset, before the next embed.
@@ -104,7 +107,7 @@ final class MarkdownEmbedOffsets {
         case MarkdownChipGlyphSpan() || MarkdownChipSpacerSpan():
           // Code units in the painter, none in the rendered text.
           final length = (span as TextSpan).text!.length;
-          entries.add(MarkdownEmbedEntry._(
+          entries.add(MarkdownTextEntry._(
             span: null,
             placeholderIndex: -1,
             painterStart: painterOffset,
@@ -119,7 +122,7 @@ final class MarkdownEmbedOffsets {
           painterOffset += text?.length ?? 0;
           if (children != null) children.forEach(walk);
         case MarkdownEmbedSpan():
-          entries.add(MarkdownEmbedEntry._(
+          entries.add(MarkdownTextEntry._(
             span: span,
             placeholderIndex: placeholders,
             painterStart: painterOffset,
@@ -130,7 +133,7 @@ final class MarkdownEmbedOffsets {
           placeholders++;
           painterOffset++;
         case MarkdownImageSpan(:final modelText):
-          entries.add(MarkdownEmbedEntry._(
+          entries.add(MarkdownTextEntry._(
             span: null,
             image: span,
             placeholderIndex: placeholders,
@@ -151,26 +154,37 @@ final class MarkdownEmbedOffsets {
     }
 
     walk(text);
-    return entries.isEmpty ? identity : MarkdownEmbedOffsets._(entries);
+    return entries.isEmpty ? identity : MarkdownTextOffsets._(entries);
   }
 
   /// The map of [painter]'s current text.
   ///
   /// Read on every pointer move, so it is remembered per painter and only
   /// rebuilt when the painter is given another text.
-  factory MarkdownEmbedOffsets.of(TextPainter painter) {
+  factory MarkdownTextOffsets.of(TextPainter painter) {
     final text = painter.text;
     final cached = _cache[painter];
     if (cached != null && identical(cached.text, text)) return cached.offsets;
-    final offsets = MarkdownEmbedOffsets.ofSpan(text);
+    final offsets = MarkdownTextOffsets.ofSpan(text);
     _cache[painter] = _Cached(text, offsets);
     return offsets;
   }
 
-  static final Expando<_Cached> _cache = Expando<_Cached>('embedOffsets');
+  static final Expando<_Cached> _cache = Expando<_Cached>('textOffsets');
 
-  /// The embeds of the paragraph, in text order.
-  final List<MarkdownEmbedEntry> entries;
+  /// The rendered text of [painter]'s current text.
+  ///
+  /// Selection reads it on every highlight and copy, so it is built once per
+  /// text, beside the map, instead of on each call to [renderedText].
+  static String renderedTextOf(TextPainter painter) {
+    final offsets = MarkdownTextOffsets.of(painter);
+    if (offsets.isIdentity) return painter.plainText;
+    final cached = _cache[painter]!;
+    return cached.rendered ??= offsets.renderedText(painter.plainText);
+  }
+
+  /// The entries of the paragraph, in text order.
+  final List<MarkdownTextEntry> entries;
 
   /// Whether the paragraph has no embed, so both spaces are the same.
   bool get isIdentity => entries.isEmpty;
@@ -238,7 +252,7 @@ final class MarkdownEmbedOffsets {
   /// square the embed is drawn into, which pokes out above and below it.
   ///
   /// Needs [painter] laid out.
-  MarkdownEmbedEntry? entryAt(TextPainter painter, Offset local) {
+  MarkdownTextEntry? entryAt(TextPainter painter, Offset local) {
     if (isIdentity) return null;
     final boxes = painter.inlinePlaceholderBoxes;
     if (boxes == null) return null;
@@ -274,8 +288,11 @@ final class MarkdownEmbedOffsets {
 }
 
 final class _Cached {
-  const _Cached(this.text, this.offsets);
+  _Cached(this.text, this.offsets);
 
   final InlineSpan? text;
-  final MarkdownEmbedOffsets offsets;
+  final MarkdownTextOffsets offsets;
+
+  /// [MarkdownTextOffsets.renderedTextOf], once asked for.
+  String? rendered;
 }

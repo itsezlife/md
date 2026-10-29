@@ -10,7 +10,7 @@ import 'inline_image.dart' show paintMarkdownImages;
 
 /// The leading glyph of a chip: one code unit of the painter's text that the
 /// rendered text (selection, copy) does not have. The offset map in
-/// `embed_offset_map.dart` bridges the two.
+/// `text_offset_map.dart` bridges the two.
 ///
 /// The run only reserves the glyph's room (its advance and the [gap] after
 /// it) and is transparent: the glyph itself is drawn by

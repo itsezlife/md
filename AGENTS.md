@@ -46,7 +46,7 @@ benchmarks run under `dart run`.
 | `render.dart` | **re-export barrel** for `render/` (keeps `src/render.dart` imports working) | [rendering](docs/rendering.md) |
 | `render/block_painter.dart` | `BlockPainter` framework: interfaces + mixins (`SelectableTextBlock`, `MultiPainterSelectable`, `ParagraphGestureHandler`, `SelectableFragment`, `HorizontallyPannableBlock`) | [rendering](docs/rendering.md) |
 | `render/span_builder.dart` | `paragraphFromMarkdownSpans(...)` — the public span→`TextSpan` helper | [rendering](docs/rendering.md) |
-| `render/inline_image.dart` | `MarkdownImageSpan`, `layoutMarkdownText` / `paintMarkdownText`, `MarkdownImagePool`; its offset helpers read `render/embed_offset_map.dart`, the one painter ↔ rendered map for embeds, pictures and chips | [rendering](docs/rendering.md) |
+| `render/inline_image.dart` | `MarkdownImageSpan`, `layoutMarkdownText` / `paintMarkdownText`, `MarkdownImagePool`; its offset helpers read `render/text_offset_map.dart`, the one painter ↔ rendered map for embeds, pictures and chips | [rendering](docs/rendering.md) |
 | `render/markdown_painter.dart` | `MarkdownPainter` orchestrator (`@meta.internal`): block list, layout, cached `ui.Picture`, hit-test | [rendering](docs/rendering.md) |
 | `render/markdown_render_object.dart` | `MarkdownRenderObject` (`@meta.internal`) — the `RenderBox`, also a `MarkdownSelectionSurface` | [rendering](docs/rendering.md) |
 | `render/blocks/*.dart` | `BlockPainter$Paragraph … $Table` / `$ScrollableTable` — default painters + opt-in pannable table | [rendering](docs/rendering.md) |

@@ -25,7 +25,7 @@ import 'blocks/paragraph.dart';
 import 'blocks/quote.dart';
 import 'blocks/spacer.dart';
 import 'blocks/table.dart';
-import 'embed_offset_map.dart';
+import 'text_offset_map.dart';
 import 'inline_embeds.dart';
 import 'spoiler_particle_tile.dart';
 import 'spoiler_phase.dart';
@@ -1316,7 +1316,7 @@ class MarkdownPainter {
         _ => false,
       };
       for (final (painter, origin, _) in _textFragments(block)) {
-        final offsets = MarkdownEmbedOffsets.of(painter);
+        final offsets = MarkdownTextOffsets.of(painter);
         if (offsets.isIdentity) continue;
         final boxes = painter.inlinePlaceholderBoxes;
         if (boxes == null) continue;
@@ -1353,7 +1353,7 @@ class MarkdownPainter {
   // the paragraph's.
   MarkdownInlineEmbedPaintContext _paintContextFor(
     TextPainter painter,
-    MarkdownEmbedEntry entry,
+    MarkdownTextEntry entry,
     double opacity,
   ) {
     final color = entry.span?.style?.color ?? painter.text?.style?.color;
@@ -1376,7 +1376,7 @@ class MarkdownPainter {
     for (var i = 0; i < _blockPainters.length; i++) {
       final visible = !(overflow && _blockOffsets[i] > size.height);
       for (final (painter, _, _) in _textFragments(_blockPainters[i])) {
-        for (final entry in MarkdownEmbedOffsets.of(painter).entries) {
+        for (final entry in MarkdownTextOffsets.of(painter).entries) {
           final embed = entry.span?.embed;
           if (embed == null) continue;
           if (embed.visible != visible) embed.visible = visible;

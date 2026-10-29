@@ -10,7 +10,7 @@ import 'package:meta/meta.dart' as meta show internal;
 
 import '../image.dart';
 import 'chip.dart';
-import 'embed_offset_map.dart';
+import 'text_offset_map.dart';
 
 /// An inline slot in a [TextSpan] tree where a [MarkdownImage] is painted.
 ///
@@ -239,7 +239,7 @@ GestureRecognizer? markdownSpanRecognizer(InlineSpan? span) => switch (span) {
 /// a slot it lands after the placeholder, on the neighbouring text.
 @meta.internal
 InlineSpan? markdownSpanAtLocal(TextPainter painter, Offset local) {
-  final entry = MarkdownEmbedOffsets.of(painter).entryAt(painter, local);
+  final entry = MarkdownTextOffsets.of(painter).entryAt(painter, local);
   if (entry != null) return entry.span ?? entry.image;
   return painter.text?.getSpanForPosition(painter.getPositionForOffset(local));
 }
@@ -263,7 +263,7 @@ InlineSpan? markdownSpanAtLocal(TextPainter painter, Offset local) {
   TextPainter painter,
   Offset local,
 ) {
-  final offsets = MarkdownEmbedOffsets.of(painter);
+  final offsets = MarkdownTextOffsets.of(painter);
   final entry = offsets.entryAt(painter, local);
   if (entry == null) {
     final position = painter.getPositionForOffset(local);
@@ -285,7 +285,7 @@ InlineSpan? markdownSpanAtLocal(TextPainter painter, Offset local) {
 /// link icon selects the first word of its label.
 @meta.internal
 TextRange markdownWordBoundary(TextPainter painter, Offset local) {
-  final offsets = MarkdownEmbedOffsets.of(painter);
+  final offsets = MarkdownTextOffsets.of(painter);
   final entry = offsets.entryAt(painter, local);
   var offset = -1;
   if (entry != null) {
@@ -308,14 +308,14 @@ TextRange markdownWordBoundary(TextPainter painter, Offset local) {
 
 // --- Model ↔ painter offsets ---------------------------------------------
 //
-// One map serves pictures, inline embeds and chips: [MarkdownEmbedOffsets].
+// One map serves pictures, inline embeds and chips: [MarkdownTextOffsets].
 
 /// The model text of [painter]: its plain text with every placeholder
 /// replaced by the model text it stands for (a picture's alt text, an embed's
 /// alt, nothing for a link icon or a chip glyph).
 @meta.internal
 String markdownModelText(TextPainter painter) =>
-    MarkdownEmbedOffsets.of(painter).renderedText(painter.plainText);
+    MarkdownTextOffsets.renderedTextOf(painter);
 
 /// Whether [span] contains a [MarkdownImageSpan] (a picture or link icon).
 @meta.internal
@@ -331,12 +331,12 @@ bool markdownSpanHasImages(InlineSpan? span) {
 /// text covers the whole picture.
 @meta.internal
 int markdownPainterOffset(TextPainter painter, int model, {bool end = false}) =>
-    MarkdownEmbedOffsets.of(painter).toPainter(model, end: end);
+    MarkdownTextOffsets.of(painter).toPainter(model, end: end);
 
 /// Maps a painter offset of [painter]'s text to a model offset.
 @meta.internal
 int markdownModelOffset(TextPainter painter, int offset) =>
-    MarkdownEmbedOffsets.of(painter).toRendered(offset);
+    MarkdownTextOffsets.of(painter).toRendered(offset);
 
 final class _TextMap {
   _TextMap(this.text, this.placeholders);

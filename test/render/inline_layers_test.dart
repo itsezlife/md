@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render.dart';
-import 'package:flutter_md/src/render/embed_offset_map.dart';
+import 'package:flutter_md/src/render/text_offset_map.dart';
 import 'package:flutter_md/src/render/inline_embeds.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -67,7 +67,7 @@ void main() {
       expect(p.painter.plainText, 'a $_obj $_obj b');
       expect(p.renderedText, 'a :wave: cat b');
       // Both placeholders are entries of the one map, in paragraph order.
-      final entries = MarkdownEmbedOffsets.of(p.painter).entries;
+      final entries = MarkdownTextOffsets.of(p.painter).entries;
       expect(entries.map((e) => e.placeholderIndex), <int>[0, 1]);
       expect(entries.first.span, isNotNull);
       expect(entries.last.image, isNotNull);
@@ -102,6 +102,62 @@ void main() {
       final last = p.painter.plainText.length;
       expect(markdownModelOffset(p.painter, last), 11);
       expect(markdownModelOffset(p.painter, last - 1), 8);
+    });
+  });
+
+  group('a picture\'s alt text is atomic through the controller', () {
+    // 'a xyz b': the picture's alt is 2..5.
+    Future<MarkdownSelectionController> pump(WidgetTester tester) async {
+      const source = 'a ![xyz](c.png) b';
+      final controller = MarkdownSelectionController(
+        formatter: MarkdownSelectionFormatter.plain,
+      )..setDocuments(<MarkdownDocumentRef>[
+          MarkdownDocumentRef(id: 'd', model: Markdown.fromString(source)),
+        ]);
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(Directionality(
+        textDirection: TextDirection.ltr,
+        child: MarkdownWidget(
+          markdown: Markdown.fromString(source),
+          theme: _theme(_Resolver()),
+          controller: controller,
+          documentId: 'd',
+        ),
+      ));
+      return controller;
+    }
+
+    MarkdownSelection range(int base, int extent) => MarkdownSelection(
+          base: MarkdownPosition(documentId: 'd', blockIndex: 0, offset: base),
+          extent:
+              MarkdownPosition(documentId: 'd', blockIndex: 0, offset: extent),
+        );
+
+    testWidgets('a range set from outside never copies a partial alt',
+        (tester) async {
+      final controller = await pump(tester);
+      controller.selection = range(3, 7);
+      expect(controller.getText(), 'xyz b');
+      controller.selection = range(0, 4);
+      expect(controller.getText(), 'a xyz');
+      controller.selection = range(3, 4);
+      expect(controller.rangeFor('d', 0), const TextRange(start: 2, end: 5));
+    });
+
+    testWidgets('a character step takes the whole alt', (tester) async {
+      final controller = await pump(tester);
+      controller
+        ..selection = range(0, 2)
+        ..extendSelectionByCharacter(forward: true);
+      expect(controller.getText(), 'a xyz');
+    });
+
+    testWidgets('the selection stays whole once the picture is unmounted',
+        (tester) async {
+      final controller = await pump(tester);
+      controller.selection = range(3, 7);
+      await tester.pumpWidget(const SizedBox());
+      expect(controller.getText(), 'xyz b');
     });
   });
 }

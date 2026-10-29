@@ -13,7 +13,7 @@ import '../inline_embed.dart';
 ///
 /// The span is one U+FFFC code unit in the [TextPainter]'s text while the
 /// reference reads as [MarkdownInlineEmbedTarget.alt] everywhere else, which is
-/// what the offset map in `embed_offset_map.dart` bridges.
+/// what the offset map in `text_offset_map.dart` bridges.
 @meta.internal
 final class MarkdownEmbedSpan extends PlaceholderSpan {
   /// Reserves room for [embed], whose reference is [target].
