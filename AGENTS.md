@@ -133,6 +133,9 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
 - `__x__` = **underline**, not bold. Soft line breaks are preserved inside
   paragraphs. Inline `$…$` math is **opt-in** (`inlineMath: true`).
 - `example/` is a separate package (`md_example`, `path: ../`).
+- Goldens are per host OS (`goldens/` = macOS, `goldens/linux/` = CI). A
+  pixel change updates both sets; see
+  [`docs/development.md`](docs/development.md#goldens).
 
 ## The docs
 

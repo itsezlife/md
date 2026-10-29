@@ -22,6 +22,25 @@ dart format lib test example                                    # to actually ap
 cd example && flutter pub get && flutter run
 ```
 
+### Goldens
+
+Text and antialiasing rasterize differently per OS, so the golden tests
+(`test/render/embed_paint_test.dart`, `test/render/selection_highlight_test.dart`,
+`test/spoiler/spoiler_golden_test.dart`) keep one image set per host through
+`test/golden_comparator.dart`: macOS images sit in `goldens/`, Linux (CI) ones
+in `goldens/linux/`. A change that moves pixels updates **both** sets:
+
+```shell
+# macOS
+flutter test --update-goldens <golden test files>
+# Linux, in the CI image (emulated on Apple silicon; copy the repo first so the
+# container does not rewrite your .dart_tool):
+docker run --rm --platform linux/amd64 -v "$COPY":/w -w /w \
+  ghcr.io/plugfox/flutter:stable \
+  sh -c 'flutter pub get && flutter test --update-goldens <golden test files>'
+# then copy $COPY/test/**/goldens/linux/*.png back
+```
+
 ### Benchmarks
 
 Parser benchmarks are pure Dart; the render benchmark needs the Flutter test

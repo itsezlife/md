@@ -1,32 +1,13 @@
 import 'dart:io';
 import 'dart:math';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_md/flutter_md.dart';
 import 'package:flutter_md/src/render/markdown_render_object.dart';
 import 'package:flutter_md/src/render/spoiler_particle_tile.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Compares against the files next to this test, whichever entrypoint runs
-/// it, and forgives antialiasing noise at the ripple's circle edge (a fraction
-/// of a percent of the pixels) so the same files hold on every platform.
-class _SpoilerGoldenComparator extends LocalFileComparator {
-  _SpoilerGoldenComparator(super.testFile);
-
-  static const double _tolerance = 0.005;
-
-  @override
-  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
-    final result = await GoldenFileComparator.compareLists(
-      imageBytes,
-      await getGoldenBytes(golden),
-    );
-    if (result.passed || result.diffPercent <= _tolerance) return true;
-    final error = await generateFailureOutput(result, golden, basedir);
-    throw FlutterError(error);
-  }
-}
+import '../golden_comparator.dart';
 
 /// A paragraph that draws a fake embed over the `#` in its text, the way a
 /// live embed pass would: fully visible when the spoiler is revealed, absent
@@ -143,8 +124,11 @@ void main() {
 
     setUpAll(() {
       previous = goldenFileComparator;
-      goldenFileComparator = _SpoilerGoldenComparator(
+      // Forgives antialiasing noise at the ripple's circle edge (a fraction
+      // of a percent of the pixels).
+      goldenFileComparator = PlatformGoldenComparator(
         Uri.file('${Directory.current.path}/test/spoiler/spoiler_golden.dart'),
+        tolerance: 0.005,
       );
     });
 
