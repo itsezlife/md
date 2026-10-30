@@ -94,12 +94,6 @@ job, steps in order (any non-zero fails):
 tags `[0-9]+.[0-9]+.[0-9]+*`; delegates to `dart-lang/setup-dart` publish workflow
 (OIDC). Benchmarks are never run in CI.
 
-**`pages.yml`** (name `Deploy demo to GitHub Pages`) — on `workflow_dispatch` and
-pushes to `master` that touch `lib/`, `example/` sources or `pubspec.yaml`; builds
-`example/` for the web with `--base-href /md/` and publishes it to
-<https://doctorinaai.github.io/md/>. Needs **Settings → Pages → Source: GitHub
-Actions** on the repository.
-
 ## Lint rules that bite (`analysis_options.yaml`)
 
 Base `package:flutter_lints/flutter.yaml`, plus `strict-casts`, `strict-raw-types`,

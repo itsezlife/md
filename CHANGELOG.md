@@ -28,8 +28,8 @@ under 0.3.0's *Fork status*.
 - **CHANGED**: `paragraphFromMarkdownSpans` leaves `style` null on an unstyled
   plain text child, which inherits the parent's style. Embeds, pictures and
   chips keep their resolved style.
-- **ADDED**: on-device benchmarks (`benchmark_compare/`) and a GitHub Pages
-  workflow for the example app (`.github/workflows/pages.yml`).
+- **ADDED**: on-device benchmarks (`benchmark_compare/`). Upstream's GitHub
+  Pages workflow for the example app is not taken: the fork has no Pages site.
 
 ### Reconciled
 - **CHANGED**: painter reuse covers the fork's theme fields: `paintsLike` also
