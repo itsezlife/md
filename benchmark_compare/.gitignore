@@ -13,3 +13,6 @@ android/
 .flutter-plugins-dependencies
 *.iml
 .idea/
+
+# FVM: the SDK it downloads (the pinned version is in .fvmrc)
+.fvm/
