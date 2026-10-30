@@ -15,6 +15,7 @@ import '../markdown.dart';
 import '../nodes.dart';
 import '../selection.dart';
 import '../theme.dart';
+import 'block_identity.dart';
 import 'block_painter.dart';
 import 'blocks/alert.dart';
 import 'blocks/code.dart';
@@ -264,24 +265,39 @@ class MarkdownPainter {
 
   /// Rebuilds the block painters from the markdown blocks.
   /// This method is called whenever the markdown or theme changes.
-  /// [preHarvested] / [oldBlocks] supply pans captured against the previous
-  /// model (required when [_markdown] was already swapped before rebuild).
+  ///
+  /// The first [kept] painters, already built for the same blocks, stay; the
+  /// rest are disposed unless [disposeDropped] is false (a host builder may
+  /// hand out a painter it still holds on to). [preHarvested] / [oldBlocks]
+  /// supply pans captured against the previous model (required when
+  /// [_markdown] was already swapped before rebuild).
   void _rebuild({
+    int kept = 0,
+    bool disposeDropped = true,
     Map<int, double>? preHarvested,
     List<MD$Block>? oldBlocks,
   }) {
     final harvested = preHarvested ?? _harvestHorizontalPanOffsets();
     final previousBlocks = oldBlocks ?? _markdown.blocks;
-    for (final painter in _blockPainters) {
-      painter.dispose();
+    final embeds = _embeds;
+    for (final painter in _blockPainters.skip(kept)) {
+      // A kept painter still shows its embeds: release only the ones that
+      // go, through the same text the live embed pass paints from.
+      if (kept > 0 && embeds != null) {
+        for (final (text, _, _) in _textFragments(painter)) {
+          embeds.releaseIn(text.text);
+        }
+      }
+      if (disposeDropped) painter.dispose();
     }
-    _embeds?.disposeAll();
+    if (kept == 0) embeds?.disposeAll();
     onPaintersRebuilt?.call();
     _images.nextGeneration();
-    _images.run(() => _buildPainters(harvested, previousBlocks));
+    _images.run(() => _buildPainters(kept, harvested, previousBlocks));
   }
 
   void _buildPainters(
+    int kept,
     Map<int, double> harvested,
     List<MD$Block> previousBlocks,
   ) {
@@ -293,9 +309,9 @@ class MarkdownPainter {
     final filter = _theme.blockFilter;
     final embeds = _embeds;
     final blocks = _markdown.blocks;
-    final painters = <BlockPainter>[];
-    final sources = <int>[];
-    for (var i = 0; i < blocks.length; i++) {
+    final painters = <BlockPainter>[..._blockPainters.take(kept)];
+    final sources = <int>[for (var i = 0; i < kept; i++) i];
+    for (var i = kept; i < blocks.length; i++) {
       final block = blocks[i];
       if (filter != null && !filter(block)) continue;
       painters.add(
@@ -712,22 +728,73 @@ class MarkdownPainter {
       _dropFillTileIfStale();
       return false;
     }
+    // Embeds are released through the text of the painters that go, which a
+    // block may not expose before its first layout.
+    final kept = embedsChanged || (_needsLayout && hasEmbeds)
+        ? 0
+        : _reusablePainters(markdown, theme);
+    if (!embedsChanged &&
+        !_needsLayout &&
+        kept == _blockPainters.length &&
+        kept == markdown.blocks.length &&
+        _canReusePainters(theme)) {
+      // Nothing to draw differently: a parent rebuilt, or the same text was
+      // parsed again. Layout and the cached picture stay valid.
+      _markdown = markdown;
+      _theme = theme;
+      _dropFillTileIfStale();
+      return false;
+    }
     if (embedsChanged) _embeds = _hostFor(embedResolver, devicePixelRatio);
     // Harvest against the *current* model before swapping — otherwise
     // content-anchored remap would key pans by the new blocks' text.
     final oldBlocks = _markdown.blocks;
     final harvested = _harvestHorizontalPanOffsets();
     _dropPictures();
+    _keptBlocks = kept;
+    if (kept < _prefixBlocks) _dropPrefixPicture();
     // Pictures resolved by another resolver are stale.
     if (_theme.imageResolver != theme.imageResolver) _images.clear();
+    final previousBuilder = _theme.builder;
     _markdown = markdown;
     _theme = theme;
     _dropFillTileIfStale();
     _isEmpty = markdown.isEmpty;
-    _rebuild(preHarvested: harvested, oldBlocks: oldBlocks);
+    _rebuild(
+      kept: kept,
+      disposeDropped: previousBuilder == null,
+      preHarvested: harvested,
+      oldBlocks: oldBlocks,
+    );
     // The old host's embeds are in painters that _rebuild just disposed.
     if (embedsChanged) previousEmbeds?.disposeAll();
     return true; // Indicate that the painter was updated.
+  }
+
+  /// Whether painters built for the current theme may serve [theme]. Hooks can
+  /// depend on outside state, and pictures are tracked per document generation,
+  /// so a theme with any of them always builds anew.
+  bool _canReusePainters(MarkdownThemeData theme) =>
+      theme.builder == null &&
+      theme.imageResolver == null &&
+      theme.blockFilter == null &&
+      theme.spanFilter == null &&
+      _theme.paintsLike(theme);
+
+  /// How many leading painters can stay when moving to [markdown] and [theme].
+  ///
+  /// A streamed document only changes at its end, so this keeps the shaped text
+  /// of everything before it. The comparison stops at the first difference and
+  /// costs far less than laying a block out again.
+  int _reusablePainters(Markdown markdown, MarkdownThemeData theme) {
+    if (!_canReusePainters(theme)) return 0;
+    final before = _markdown.blocks, after = markdown.blocks;
+    final limit = math.min(before.length, after.length);
+    var kept = 0;
+    while (kept < limit && markdownBlocksSame(before[kept], after[kept])) {
+      kept++;
+    }
+    return kept;
   }
 
   /// Invalidate cached layouts when system fonts change.
@@ -735,6 +802,8 @@ class MarkdownPainter {
   void invalidateLayout() {
     _needsLayout = true;
     _dropPictures();
+    _keptBlocks = 0;
+    _dropPrefixPicture();
     // Dispose and rebuild all block painters to recreate TextPainters
     // with the new system fonts (_rebuild harvests horizontal pans first).
     _rebuild();
@@ -800,6 +869,8 @@ class MarkdownPainter {
       }
       syncHorizontalPanStore();
     }
+    if (laidOutWidth != _prefixLayoutWidth) _dropPrefixPicture();
+    _prefixLayoutWidth = laidOutWidth;
     _needsLayout = false; // No need to layout if the markdown is empty.
     _findSpoilerBlocks();
     return _size = size;
@@ -1153,7 +1224,21 @@ class MarkdownPainter {
 
     var overflow = _size.height > size.height;
     var offset = .0;
-    for (var painter in _blockPainters) {
+    var first = 0;
+    // The prefix is recorded revealed; a hidden picture records everything.
+    if (revealed && !overflow) {
+      _updatePrefixPicture(size);
+      final prefix = _prefixPicture;
+      if (prefix != null) {
+        $canvas.drawPicture(prefix);
+        first = _prefixBlocks;
+        for (var i = 0; i < first; i++) {
+          offset += _blockPainters[i].size.height;
+        }
+      }
+    }
+    for (var i = first; i < _blockPainters.length; i++) {
+      final painter = _blockPainters[i];
       if (overflow && offset > size.height) {
         break;
       }
@@ -1177,6 +1262,56 @@ class MarkdownPainter {
   /// The cached glyph picture reused across repaints at the same size.
   @visibleForTesting
   Picture? get debugCachedPicture => _revealedPicture ?? _hiddenPicture;
+
+  /// How many leading painters the last [update] kept. Only those can get into
+  /// [_prefixPicture]: a document that is streamed changes after them.
+  int _keptBlocks = 0;
+
+  /// The first [_prefixBlocks] blocks already recorded, so that a streamed
+  /// chunk records only what follows them instead of the whole document.
+  Picture? _prefixPicture;
+  int _prefixBlocks = 0;
+  double? _prefixWidth;
+  double? _prefixLayoutWidth;
+
+  /// Prefixes shorter than this are cheaper to record again than to keep.
+  static const int _minPrefixGrowth = 16;
+
+  /// The recorded prefix, for tests.
+  @visibleForTesting
+  int get debugPrefixBlocks => _prefixBlocks;
+
+  void _dropPrefixPicture() {
+    _prefixPicture?.dispose();
+    _prefixPicture = null;
+    _prefixBlocks = 0;
+    _prefixWidth = null;
+  }
+
+  /// Records the kept blocks again once they outgrow the prefix by a quarter,
+  /// always flat, so the picture never nests deeper than one level and the
+  /// total recording work stays proportional to the blocks that arrived.
+  void _updatePrefixPicture(Size size) {
+    if (_prefixWidth != size.width) _dropPrefixPicture();
+    final growth = _keptBlocks - _prefixBlocks;
+    if (growth < _minPrefixGrowth || growth * 4 < _prefixBlocks) return;
+    final recorder = PictureRecorder();
+    final canvas = Canvas(recorder);
+    var offset = .0;
+    for (var i = 0; i < _keptBlocks; i++) {
+      final painter = _blockPainters[i];
+      // Pannable blocks paint live, after the pictures.
+      if (painter is! HorizontallyPannableBlock) {
+        if (painter is SpoilerBlockPainter) painter.spoilersRevealed = true;
+        painter.paint(canvas, size, offset);
+      }
+      offset += painter.size.height;
+    }
+    _prefixPicture?.dispose();
+    _prefixPicture = recorder.endRecording();
+    _prefixBlocks = _keptBlocks;
+    _prefixWidth = size.width;
+  }
 
   /// The markdown content to paint.
   ///
@@ -1429,6 +1564,7 @@ class MarkdownPainter {
   void dispose() {
     _images.dispose();
     _dropPictures();
+    _dropPrefixPicture();
     _releaseFillTile();
     _horizontalPanBySource.clear();
     onPaintersRebuilt = null;

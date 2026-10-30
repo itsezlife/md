@@ -12,7 +12,16 @@ Three ways from `String` to `Markdown`:
 Markdown.fromString(src);                       // convenience factory; inlineMath: false
 markdownDecoder.convert(src);                   // shared const MarkdownDecoder()
 const MarkdownDecoder(inlineMath: true).convert(src);
+await Markdown.fromStringAsync(src);            // in slices, for a very long document
 ```
+
+`convertAsync` runs the same block loop as `convert`; `_BlockLoop` holds what it
+needs to stop between two lines and resume. Between slices it awaits `yieldToUi`,
+chosen by a conditional import so the parser still runs under plain `dart run`:
+`yield_to_ui_flutter.dart` waits for the end of the frame when one is on its way
+(at most 100 ms, as frames stop in the background) and otherwise, like
+`yield_to_ui.dart`, gives the event loop a turn. A nested quote, a table's cell
+counts and a single block's inline parse are not split.
 
 - `MarkdownDecoder extends Converter<String, Markdown>` — `const
   MarkdownDecoder({bool inlineMath = false, Map<String, String>? mathReplacements})`.
@@ -215,6 +224,8 @@ fixing the parser fails the case and the case moves to the table above:
 - List `indent` is a **column width**, capped at 8; 9+ leading spaces end the list.
   Tree assembly is a recursive `traverse` over a flat list with a shared mutable
   offset closure (note the intermediate record misspells the field `intent`).
+- Quote bodies are re-parsed as blocks down to 32 levels (`_maxQuoteDepth`);
+  a deeper body with a fence stays inline text, which bounds the recursion.
 - `MD$Quote.indent` is 1, or 2 right after a list (see *Indented quotes*); alert bodies are trimmed (`skip(1).join('\n').trim()`)
   while quote bodies keep raw `join('\n')`. Plain quotes/alerts stay leaf `spans`;
   a body that contains a fence line is re-parsed into `blocks` (spans empty).

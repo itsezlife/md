@@ -350,10 +350,22 @@ final class _TextMap {
 
 final Expando<_TextMap> _textMaps = Expando<_TextMap>('markdownTextMap');
 
+bool _hasPlaceholders(InlineSpan? text) {
+  var found = false;
+  text?.visitChildren((span) {
+    found = span is PlaceholderSpan;
+    return !found;
+  });
+  return found;
+}
+
 _TextMap _mapOf(TextPainter painter) {
   final text = painter.text;
   final cached = _textMaps[painter];
   if (cached != null && identical(cached.text, text)) return cached;
+  if (!_hasPlaceholders(text)) {
+    return _textMaps[painter] = _TextMap(text, const <PlaceholderSpan>[]);
+  }
   final placeholders = <PlaceholderSpan>[];
   text?.visitChildren((span) {
     if (span is PlaceholderSpan) placeholders.add(span);
