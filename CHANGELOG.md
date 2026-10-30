@@ -1,3 +1,16 @@
+## 0.8.1
+
+A host whose theme `builder` makes a new painter on every call can hand those
+painters to the body again. The release tag is `v0.8.1`; depend on it by git
+ref as described under 0.3.0's *Fork status*.
+
+### Rendering
+- **ADDED**: `MarkdownThemeData.disposeBuiltPainters` (default `false`;
+  constructor, `mergeTheme`, `copyWith`, `lerp`). When set, `MarkdownPainter.update`
+  disposes the painters `builder` made that the update replaces, as it did
+  before 0.8.0, instead of leaving them to the garbage collector. Leave it off
+  for a builder that keeps a painter and returns it again.
+
 ## 0.8.0
 
 Merges upstream `DoctorinaAI/md` `0.3.1` into the fork. The upstream release

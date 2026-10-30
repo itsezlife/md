@@ -121,6 +121,29 @@ void main() => group('MarkdownThemeData', () {
       });
 
       group('copyWith', () {
+        test('carries, overrides and lerps disposeBuiltPainters', () {
+          final theme = MarkdownThemeData(
+            textStyle: const TextStyle(fontSize: 14),
+            disposeBuiltPainters: true,
+          );
+          expect(base().disposeBuiltPainters, isFalse);
+          expect(theme.copyWith().disposeBuiltPainters, isTrue);
+          expect(
+            theme.copyWith(disposeBuiltPainters: false).disposeBuiltPainters,
+            isFalse,
+          );
+          final near = theme.lerp(base(), 0.4) as MarkdownThemeData;
+          final far = theme.lerp(base(), 0.6) as MarkdownThemeData;
+          expect(near.disposeBuiltPainters, isTrue);
+          expect(far.disposeBuiltPainters, isFalse);
+          expect(
+            MarkdownThemeData.mergeTheme(ThemeData(),
+                    disposeBuiltPainters: true)
+                .disposeBuiltPainters,
+            isTrue,
+          );
+        });
+
         test('preserves builder and onLinkTap (regression)', () {
           var called = false;
           final theme = MarkdownThemeData(

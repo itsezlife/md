@@ -267,8 +267,8 @@ class MarkdownPainter {
   /// This method is called whenever the markdown or theme changes.
   ///
   /// The first [kept] painters, already built for the same blocks, stay; the
-  /// rest are disposed unless [disposeDropped] is false (a host builder may
-  /// hand out a painter it still holds on to). [preHarvested] / [oldBlocks]
+  /// rest are disposed unless [disposeDropped] is false (see
+  /// [MarkdownThemeData.disposeBuiltPainters]). [preHarvested] / [oldBlocks]
   /// supply pans captured against the previous model (required when
   /// [_markdown] was already swapped before rebuild).
   void _rebuild({
@@ -755,14 +755,17 @@ class MarkdownPainter {
     if (kept < _prefixBlocks) _dropPrefixPicture();
     // Pictures resolved by another resolver are stale.
     if (_theme.imageResolver != theme.imageResolver) _images.clear();
-    final previousBuilder = _theme.builder;
+    // A host builder may hand out a painter it still holds on to, unless the
+    // theme says each one is the body's.
+    final disposeDropped =
+        _theme.builder == null || _theme.disposeBuiltPainters;
     _markdown = markdown;
     _theme = theme;
     _dropFillTileIfStale();
     _isEmpty = markdown.isEmpty;
     _rebuild(
       kept: kept,
-      disposeDropped: previousBuilder == null,
+      disposeDropped: disposeDropped,
       preHarvested: harvested,
       oldBlocks: oldBlocks,
     );

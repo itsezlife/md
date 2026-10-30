@@ -110,6 +110,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     this.blockFilter,
     this.spanFilter,
     this.builder,
+    this.disposeBuiltPainters = false,
     this.onLinkTap,
     this.onMentionTap,
     this.onChipTap,
@@ -195,6 +196,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     bool Function(MD$Block block)? blockFilter,
     bool Function(MD$Span span)? spanFilter,
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
+    bool disposeBuiltPainters = false,
     void Function(String title, String url)? onLinkTap,
     void Function(String scheme, String? id, String name)? onMentionTap,
     void Function(String target, String label)? onChipTap,
@@ -240,6 +242,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       blockFilter: blockFilter,
       spanFilter: spanFilter,
       builder: builder,
+      disposeBuiltPainters: disposeBuiltPainters,
       onLinkTap: onLinkTap,
       onMentionTap: onMentionTap,
       onChipTap: onChipTap,
@@ -393,6 +396,16 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     MD$Block block,
     MarkdownThemeData theme,
   )? builder;
+
+  /// Whether the body disposes the painters [builder] returns once an update
+  /// replaces them, as it does its own.
+  ///
+  /// Off by default: a builder may hand out a painter it keeps and returns
+  /// again, which the body must not dispose. Set it when [builder] makes a new
+  /// painter on every call, so a streamed document frees the painters it
+  /// replaces right away instead of leaving them to the garbage collector. The
+  /// painters still in use are disposed with the body either way.
+  final bool disposeBuiltPainters;
 
   /// A callback function that is called when a link is tapped.
   /// It receives the link title and URL as parameters.
@@ -591,6 +604,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
     bool Function(MD$Block block)? blockFilter,
     bool Function(MD$Span span)? spanFilter,
     BlockPainter? Function(MD$Block block, MarkdownThemeData theme)? builder,
+    bool? disposeBuiltPainters,
     void Function(String title, String url)? onLinkTap,
     void Function(String scheme, String? id, String name)? onMentionTap,
     void Function(String target, String label)? onChipTap,
@@ -649,6 +663,7 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       blockFilter: clearBlockFilter ? null : blockFilter ?? this.blockFilter,
       spanFilter: clearSpanFilter ? null : spanFilter ?? this.spanFilter,
       builder: clearBuilder ? null : builder ?? this.builder,
+      disposeBuiltPainters: disposeBuiltPainters ?? this.disposeBuiltPainters,
       onLinkTap: clearOnLinkTap ? null : onLinkTap ?? this.onLinkTap,
       onMentionTap:
           clearOnMentionTap ? null : onMentionTap ?? this.onMentionTap,
@@ -704,6 +719,8 @@ class MarkdownThemeData implements ThemeExtension<MarkdownThemeData> {
       blockFilter: t < 0.5 ? blockFilter : other?.blockFilter,
       spanFilter: t < 0.5 ? spanFilter : other?.spanFilter,
       builder: t < 0.5 ? builder : other?.builder,
+      disposeBuiltPainters:
+          t < 0.5 ? disposeBuiltPainters : other?.disposeBuiltPainters ?? false,
       onLinkTap: t < 0.5 ? onLinkTap : other?.onLinkTap,
       onMentionTap: t < 0.5 ? onMentionTap : other?.onMentionTap,
       onChipTap: t < 0.5 ? onChipTap : other?.onChipTap,
