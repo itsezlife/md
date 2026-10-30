@@ -1,3 +1,56 @@
+## 0.8.0
+
+Merges upstream `DoctorinaAI/md` `0.3.1` into the fork. The upstream release
+notes are in its `0.3.1` changelog and [docs/benchmarks.md](docs/benchmarks.md);
+what follows is what the fork gains and where the two lines had to be
+reconciled. The release tag is `v0.8.0`; depend on it by git ref as described
+under 0.3.0's *Fork status*.
+
+### From upstream
+- **ADDED**: `Markdown.fromStringAsync` and `MarkdownDecoder.convertAsync`
+  parse a long document in slices (4 ms by default), pausing until the end of
+  the frame when one is on the way. The result equals that of the sync parse.
+- **FIXED**: hostile input no longer freezes the parser: more than 65535 links
+  in one paragraph, unclosed emphasis and backticks, tables that fail
+  validation, spaces in a heading, deeply nested `>` and unclosed math braces
+  are all linear now. Fenced code is re-parsed as nested blocks down to 32
+  quote levels.
+- **IMPROVED**: streaming. `MarkdownPainter.update` keeps the painters of the
+  unchanged leading blocks and records only what follows them; a rebuild with
+  equal text and theme values lays nothing out. Applies to a theme without
+  `builder`, `imageResolver`, `blockFilter` or `spanFilter`.
+- **IMPROVED**: lists and tables keep their text painters across layouts; a
+  table that fits skips the longest-word pass; list items share bullet
+  painters.
+- **CHANGED**: `MarkdownHighlighter.highlight` returns one flat span per run
+  painted alike and caches its latest results. Code reading nested token spans
+  sees flat ones.
+- **CHANGED**: `paragraphFromMarkdownSpans` leaves `style` null on an unstyled
+  plain text child, which inherits the parent's style. Embeds, pictures and
+  chips keep their resolved style.
+- **ADDED**: on-device benchmarks (`benchmark_compare/`). Upstream's GitHub
+  Pages workflow for the example app is not taken: the fork has no Pages site.
+
+### Reconciled
+- **CHANGED**: painter reuse covers the fork's theme fields: `paintsLike` also
+  compares `mentionColor`, `chipStyle`, `onMentionTap`, `onChipTap`,
+  `cursorResolver`, `emojiRuns` and `emojiScale`. A new embed resolver or
+  pixel ratio still rebuilds every block.
+- **CHANGED**: a partial rebuild disposes the inline embeds of the painters it
+  drops (through the same text the embed pass paints) and keeps those of the
+  painters it keeps. Lists and tables release their embeds when disposed, not
+  on every layout, since their paragraphs now outlive a layout. Before the
+  first layout of a document with embeds, an update rebuilds every block.
+- **CHANGED**: the recorded prefix that streaming reuses holds only the
+  revealed glyphs of non-pannable blocks: the hidden spoiler picture is
+  recorded whole, and pannable blocks still paint live.
+- **CHANGED**: `MarkdownPainter.update` no longer disposes painters a theme
+  `builder` made (upstream's rule: the host may still hold them); `dispose`
+  and a system font change still do. The fork disposed them on every update.
+- **FIXED**: the quote-after-a-list check copied every block parsed so far for
+  each line that starts with a space; it now walks back from the end, so long
+  documents stay linear.
+
 ## 0.7.1
 
 A selection cleared while a `MarkdownSelectionScope` was being torn down threw.

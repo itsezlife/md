@@ -686,8 +686,7 @@ void main() {
       expect(resolver.resolved.map((e) => e.disposeCount), [1, 1, 1]);
     });
 
-    testWidgets('a list that lays out again does not keep the old embeds',
-        (tester) async {
+    testWidgets('a list that lays out again keeps its embeds', (tester) async {
       final resolver = FakeInlineEmbedResolver();
       final markdown = Markdown.fromString('- ![x](emoji:1) one\n- two');
       await tester.pumpWidget(
@@ -696,7 +695,9 @@ void main() {
       await tester.pumpWidget(
         _app(_EmbedBody(markdown: markdown, resolver: resolver), width: 200),
       );
-      expect(resolver.resolved.length, greaterThan(1));
+      // The list keeps its item paragraphs across layouts, so the embed is
+      // resolved once.
+      expect(resolver.resolved, hasLength(1));
       expect(resolver.live, hasLength(1));
       expect(resolver.resolved.every((e) => e.disposeCount <= 1), isTrue);
       await tester.pumpWidget(_app(const SizedBox()));

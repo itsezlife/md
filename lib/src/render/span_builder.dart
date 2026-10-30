@@ -183,7 +183,9 @@ TextSpan paragraphFromMarkdownSpans({
     if (runs.isEmpty) {
       return TextSpan(
         text: span.text,
-        style: spanStyle,
+        // An unstyled span adds nothing to the parent style, and leaving it
+        // out skips encoding that style for the paragraph.
+        style: merge || span.style != MD$Style.none ? spanStyle : null,
         recognizer: recognizer,
       );
     }

@@ -7,7 +7,7 @@ first, every time. Deep detail lives in [`docs/`](docs/) — linked per section.
 immutable **node model** → a **canvas render layer** (one `RenderBox`, no
 widget-per-block) → cross-block/cross-widget **text selection**. Repo:
 `itsezlife/md` (a fork of `DoctorinaAI/md`; upstream changes are merged in
-by hand, last at upstream `0.3.0`), package `flutter_md`, currently `0.7.1`,
+by hand, last at upstream `0.3.1`), package `flutter_md`, currently `0.8.0`,
 branch `master`, consumed by git ref.
 
 ## Commands (these are the CI gates — run before you claim done)
@@ -36,7 +36,7 @@ benchmarks run under `dart run`.
 |---|---|---|
 | `parser.dart` | `MarkdownDecoder` (a `Converter<String, Markdown>`); one hand-rolled line loop, perf-tuned | [parser](docs/parser.md) |
 | `nodes.dart` | `MD$*` immutable node tree, `MD$Style` bitmask, `.map()` dispatch | [parser](docs/parser.md) |
-| `markdown.dart` | `Markdown` model + `Markdown.fromString(...)` entry point | [parser](docs/parser.md) |
+| `markdown.dart` | `Markdown` model + `Markdown.fromString(...)` / `fromStringAsync(...)` entry points | [parser](docs/parser.md) |
 | `image.dart` | `MarkdownImage` interface, `MarkdownImageRequest` / `Resolver`, `MarkdownProviderImage(+Resolver)` (`ImageProvider`-backed defaults) | [rendering](docs/rendering.md) |
 | `render/inline_image.dart` | `MarkdownImageSpan`, `layoutMarkdownText` / `paintMarkdownText`, model ↔ painter offset map, `MarkdownImagePool` (`@meta.internal`) | [rendering](docs/rendering.md) |
 | `theme.dart` | `MarkdownThemeData` (a `ThemeExtension`), `MarkdownTheme`; `builder`/`blockFilter`/`spanFilter` hooks | [rendering](docs/rendering.md) |
@@ -82,6 +82,14 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
   holds a `List<BlockPainter>`; blocks stack vertically (no implicit gaps — a
   `MD$Spacer` supplies them); block hit-testing is a binary search over
   `_blockOffsets` by `dy`.
+- **`MarkdownPainter.update` reuses leading painters** whose blocks are the same
+  (`markdownBlocksSame`) when the theme paints alike (`paintsLike`) and has no
+  `builder`, `imageResolver`, `blockFilter` or `spanFilter`, and the embed
+  resolver / pixel ratio did not change. A new field on a block or theme that
+  affects rendering must be added to `markdownBlocksSame` / `paintsLike`, or the
+  painter goes stale. Dropped painters release their embeds via
+  `_textFragments`; kept ones keep theirs. A recorded prefix of kept blocks
+  (revealed glyphs only, no pannable blocks) is reused by `_pictureFor(true)`.
 - **Glyphs are cached in a `ui.Picture` keyed by `(size, revealed)`.** It is reused
   on repaint and only invalidated by `update`/`invalidateLayout`. Do not route
   selection, scroll/pan, embed-signal or spoiler dust/ripple repaints through it.
@@ -144,3 +152,4 @@ Public API is the barrel `lib/flutter_md.dart` (`export … show …`). See
 - [`docs/rendering.md`](docs/rendering.md) — render flow, the `BlockPainter` framework, **writing a custom block painter**, theme customization.
 - [`docs/selection.md`](docs/selection.md) — controller-anchored selection, registry, surfaces, reconciliation, extraction, the scope widget.
 - [`docs/development.md`](docs/development.md) — commands, CI pipeline, lint rules, conventions, benchmarks, layout.
+- [`docs/benchmarks.md`](docs/benchmarks.md) — measured results per device, with hardware, versions and how to repeat them.
