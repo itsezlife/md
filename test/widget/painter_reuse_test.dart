@@ -237,6 +237,23 @@ void main() {
       expect(disposed, isNotEmpty);
     });
 
+    test('a builder painter the theme hands over is disposed by an update', () {
+      final disposed = <BlockPainter>[];
+      final theme = MarkdownThemeData(
+        textStyle: const TextStyle(fontSize: 14),
+        builder: (block, theme) => _Probe(disposed),
+        disposeBuiltPainters: true,
+      );
+      final painter = MarkdownPainter(
+        markdown: Markdown.fromString('a\n\nb'),
+        theme: theme,
+      );
+      painter.update(markdown: Markdown.fromString('c'), theme: theme);
+      expect(disposed, hasLength(3), reason: 'a, the spacer and b');
+      painter.dispose();
+      expect(disposed, hasLength(4));
+    });
+
     test('a streamed document paints what a fresh painter paints', () async {
       final blocks = List<String>.generate(
         120,

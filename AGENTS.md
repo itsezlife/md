@@ -7,7 +7,7 @@ first, every time. Deep detail lives in [`docs/`](docs/) — linked per section.
 immutable **node model** → a **canvas render layer** (one `RenderBox`, no
 widget-per-block) → cross-block/cross-widget **text selection**. Repo:
 `itsezlife/md` (a fork of `DoctorinaAI/md`; upstream changes are merged in
-by hand, last at upstream `0.3.1`), package `flutter_md`, currently `0.8.0`,
+by hand, last at upstream `0.3.1`), package `flutter_md`, currently `0.8.1`,
 branch `master`, consumed by git ref.
 
 ## Commands (these are the CI gates — run before you claim done)

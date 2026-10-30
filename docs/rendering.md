@@ -46,6 +46,11 @@ from `DefaultTextStyle`/`Directionality`/`MediaQuery.textScaler`.
   remaps them content-anchored onto the new painters. `_defaultBlockBuilder` is a
   `block.map(...)` to the default `BlockPainter$*` constructors (tables use
   non-pannable `$Table`; opt into `$ScrollableTable` via `builder`).
+  `update` keeps the leading painters whose blocks are the same
+  (`markdownBlocksSame`) when the theme paints alike and has no `builder`,
+  `imageResolver`, `blockFilter` or `spanFilter`; the rest are disposed, except
+  painters a `builder` made, which are left to the host unless
+  `theme.disposeBuiltPainters` hands them to the body.
 - **Layout:** per-block, top-to-bottom. Writes each block's top-`y` into
   `_blockOffsets[i]`, calls `block.layout(maxWidth)`, restores horizontal pan from
   the local map or controller, accumulates height, tracks max width. **No
@@ -432,7 +437,9 @@ provide it through the `MarkdownTheme` inherited widget (`MarkdownTheme.of/maybe
 Render-override hooks:
 
 - **`builder`** `BlockPainter? Function(MD$Block, MarkdownThemeData)` — custom
-  painter per block; `null` ⇒ default.
+  painter per block; `null` ⇒ default. Set **`disposeBuiltPainters: true`** when
+  it makes a new painter on every call, so an update disposes the ones it
+  replaces; by default they are the host's (it may return one again).
 - **`blockFilter`** `bool Function(MD$Block)` — drop a whole block before painters
   are built; `_sourceIndices` keeps selection anchored to the real model index.
 - **`spanFilter`** `bool Function(MD$Span)` — filter inline spans. **Caveat:
