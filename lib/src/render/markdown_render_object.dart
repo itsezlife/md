@@ -14,6 +14,7 @@ import 'package:meta/meta.dart' as meta show internal;
 
 import '../inline_embed.dart';
 import '../markdown.dart';
+import '../painter_cache.dart';
 import '../selection.dart';
 import '../spoiler.dart';
 import '../theme.dart';
@@ -33,19 +34,35 @@ class MarkdownRenderObject extends RenderBox
     MarkdownCursorResolver? cursorResolver,
     MarkdownInlineEmbedResolver? embedResolver,
     double devicePixelRatio = 1.0,
+    MarkdownPainterCache? painterCache,
   })  : _theme = theme,
         _cursorResolver = cursorResolver,
-        _painter = MarkdownPainter(
-          markdown: markdown,
-          theme: theme,
-          embedResolver: embedResolver,
-          devicePixelRatio: devicePixelRatio,
-        ) {
+        _painterCache = painterCache,
+        _painter = switch (painterCache?.take(markdown)) {
+          // A painter this markdown had: brought up to this body's inputs.
+          final kept? => kept
+            ..update(
+              markdown: markdown,
+              theme: theme,
+              embedResolver: embedResolver,
+              devicePixelRatio: devicePixelRatio,
+            ),
+          null => MarkdownPainter(
+              markdown: markdown,
+              theme: theme,
+              embedResolver: embedResolver,
+              devicePixelRatio: devicePixelRatio,
+            ),
+        } {
     _painter
       ..onPaintersRebuilt = _onPaintersRebuilt
       ..onEmbedSignal = _onEmbedSignal
       ..onImageChanged = _handleImageChanged;
   }
+
+  /// Where [dispose] keeps the painter instead of disposing it.
+  MarkdownPainterCache? _painterCache;
+  set painterCache(MarkdownPainterCache? value) => _painterCache = value;
 
   /// An inline picture loaded, failed or advanced a frame.
   void _handleImageChanged(bool relayout) {
@@ -1058,7 +1075,12 @@ class MarkdownRenderObject extends RenderBox
     _horizontalPan = null;
     _panningBlock = null;
     super.dispose();
-    _painter.dispose();
+    switch (_painterCache) {
+      case final cache?:
+        cache.keep(_painter);
+      case null:
+        _painter.dispose();
+    }
   }
 
   @override

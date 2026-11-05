@@ -1,3 +1,18 @@
+## 0.9.0
+
+A body that scrolls out and back paints from the text it laid out before.
+The release tag is `v0.9.0`; depend on it by git ref as described under
+0.3.0's *Fork status*.
+
+### Rendering
+- **ADDED**: `MarkdownPainterCache` and `MarkdownPainterCacheScope`. A body
+  under the scope keeps its painter in the cache when it leaves the tree, and
+  the next body that shows the same `Markdown` instance reuses it: laid out
+  again at the same width, its paragraphs do no work. The painter is updated
+  to the new body's theme and resolver first, rebuilding only what they
+  change. At most `capacity` painters are kept; the least recently kept is
+  disposed first. Without a scope nothing changes.
+
 ## 0.8.2
 
 A selection scope no longer costs a walk of every surface on each scroll frame.
