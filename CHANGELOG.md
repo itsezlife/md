@@ -1,3 +1,16 @@
+## 0.8.2
+
+A selection scope no longer costs a walk of every surface on each scroll frame.
+The release tag is `v0.8.2`; depend on it by git ref as described under
+0.3.0's *Fork status*.
+
+### Selection
+- **CHANGED**: a `MarkdownSelectionScope` that attached no handle leaders skips
+  clearing them. Every scroll frame syncs the overlay of every scope, and with
+  no selection each one walked every mounted surface to clear leaders it never
+  attached: scopes × surfaces per frame (7–8% of the UI thread while scrolling
+  a chat with one scope per body).
+
 ## 0.8.1
 
 A host whose theme `builder` makes a new painter on every call can hand those
