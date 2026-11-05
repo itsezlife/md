@@ -121,4 +121,33 @@ void main() {
         .toList();
     expect(renders[0].debugPainter, isNot(same(renders[1].debugPainter)));
   });
+
+  testWidgets('a body paints from the painter prepared for it', (
+    tester,
+  ) async {
+    final cache = MarkdownPainterCache();
+    addTearDown(cache.clear);
+    cache.prepare(markdown, theme: _theme, maxWidth: 300);
+    expect(cache.holds(markdown), isTrue);
+    final prepared = cache.take(markdown)!;
+    // Give it back as a body that left would.
+    cache.keep(prepared);
+
+    await tester.pumpWidget(_body(markdown, cache: cache));
+    expect(_render(tester).debugPainter, same(prepared));
+  });
+
+  testWidgets('nothing is prepared for a markdown a body shows', (
+    tester,
+  ) async {
+    final cache = MarkdownPainterCache();
+    addTearDown(cache.clear);
+    await tester.pumpWidget(_body(markdown, cache: cache));
+    cache.prepare(markdown, theme: _theme, maxWidth: 300);
+    expect(cache.holds(markdown), isFalse);
+
+    // Once the body leaves, its own painter is kept.
+    await tester.pumpWidget(const SizedBox());
+    expect(cache.holds(markdown), isTrue);
+  });
 }
