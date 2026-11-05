@@ -1,3 +1,17 @@
+## 0.9.1
+
+A body can paint from text laid out before it was built.
+The release tag is `v0.9.1`; depend on it by git ref as described under
+0.3.0's *Fork status*.
+
+### Rendering
+- **ADDED**: `MarkdownPainterCache.prepare` lays out a painter for a
+  `Markdown` ahead of the body that will show it, at the width and with the
+  theme, resolver and pixel ratio that body will have. A host calls it
+  between frames for the bodies a scroll is about to bring in, so their
+  layout leaves the frame they appear in. Nothing is prepared for a
+  `Markdown` a body shows already. `holds` tells whether a painter is kept.
+
 ## 0.9.0
 
 A body that scrolls out and back paints from the text it laid out before.
