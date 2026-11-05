@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 
 import 'inline_embed.dart' show MarkdownInlineEmbedResolver;
 import 'markdown.dart' show Markdown;
+import 'painter_cache.dart' show MarkdownPainterCacheScope;
 import 'render.dart' show MarkdownRenderObject;
 import 'selection.dart' show MarkdownSelectionController;
 import 'selection_scope.dart' show MarkdownSelectionScope;
@@ -101,6 +102,7 @@ class MarkdownWidget extends LeafRenderObjectWidget {
         cursorResolver: cursorResolver,
         embedResolver: embedResolver,
         devicePixelRatio: _resolveDevicePixelRatio(context),
+        painterCache: MarkdownPainterCacheScope.maybeOf(context),
       )
         ..updateSelection(
           _resolveController(context),
@@ -124,6 +126,7 @@ class MarkdownWidget extends LeafRenderObjectWidget {
     // and [update]'s registry write lands on the incoming id (recycled
     // elements change [documentId] and [markdown] together).
     renderObject
+      ..painterCache = MarkdownPainterCacheScope.maybeOf(context)
       ..updateSelection(
         _resolveController(context),
         documentId,

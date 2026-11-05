@@ -6,6 +6,7 @@ export 'src/inline_embed.dart';
 export 'src/line_clamp.dart';
 export 'src/markdown.dart';
 export 'src/nodes.dart';
+export 'src/painter_cache.dart';
 export 'src/parser.dart';
 export 'src/render.dart'
     show

@@ -67,6 +67,7 @@ import 'widget/chip_test.dart' as chip_test;
 import 'widget/inline_image_test.dart' as inline_image_test;
 import 'widget/layout_optimizations_test.dart' as layout_optimizations_test;
 import 'widget/mention_paint_test.dart' as mention_paint_test;
+import 'widget/painter_cache_test.dart' as painter_cache_test;
 import 'widget/painter_reuse_test.dart' as painter_reuse_test;
 import 'widget/render_coverage_test.dart' as render_coverage_test;
 import 'widget/render_object_test.dart' as render_object_test;
@@ -136,6 +137,7 @@ void main() => group('Unit', () {
       block_painters_test.main();
       layout_optimizations_test.main();
       painter_reuse_test.main();
+      painter_cache_test.main();
       render_coverage_test.main();
       inline_image_test.main();
       rtl_test.main();
