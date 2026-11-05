@@ -13,3 +13,6 @@ node_modules/
 tool/highlight_codegen/package-lock.json
 tool/highlight_codegen/grammars.json
 *.err
+
+# macOS Finder metadata.
+.DS_Store
