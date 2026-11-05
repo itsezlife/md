@@ -4,7 +4,7 @@ import 'package:flutter_md/src/render.dart' show MarkdownRenderObject;
 import 'package:flutter_test/flutter_test.dart';
 
 final MarkdownThemeData _theme = MarkdownThemeData(
-  textStyle: TextStyle(fontSize: 14, color: Color(0xFF000000)),
+  textStyle: const TextStyle(fontSize: 14, color: Color(0xFF000000)),
 );
 
 Widget _body(
@@ -70,7 +70,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
 
     final large = MarkdownThemeData(
-      textStyle: TextStyle(fontSize: 28, color: Color(0xFF000000)),
+      textStyle: const TextStyle(fontSize: 28, color: Color(0xFF000000)),
     );
     await tester.pumpWidget(
       _body(markdown, cache: cache, theme: large, key: const Key('b')),
