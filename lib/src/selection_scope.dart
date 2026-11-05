@@ -195,6 +195,11 @@ class MarkdownSelectionScope extends StatefulWidget {
 class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
     with TickerProviderStateMixin {
   final ContextMenuController _contextMenuController = ContextMenuController();
+
+  /// Whether [_applyHandles] attached this scope's leaders to a surface
+  /// since the last [_clearOwnHandleLeaders].
+  bool _ownHandleLeadersAttached = false;
+
   final LayerLink _startHandleLink = LayerLink();
   final LayerLink _endHandleLink = LayerLink();
   final LayerLink _toolbarLink = LayerLink();
@@ -637,6 +642,7 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
       _isRtl(endSurface) ? e.endLocal.left : e.endLocal.right,
       e.endLocal.bottom,
     );
+    _ownHandleLeadersAttached = true;
     for (final surface in controller.mountedSurfaces) {
       final isStart = identical(surface, startSurface);
       final isEnd = identical(surface, endSurface);
@@ -655,6 +661,11 @@ class MarkdownSelectionScopeState extends State<MarkdownSelectionScope>
   /// Identity-filtered clear keeps the owning scope's handle attachment intact
   /// while this scope tears down its own overlay.
   void _clearOwnHandleLeaders() {
+    // Every scroll frame syncs the overlay of every scope; a scope that never
+    // attached its leaders has nothing to clear, and walking each mounted
+    // surface per scope would cost scopes × surfaces per frame.
+    if (!_ownHandleLeadersAttached) return;
+    _ownHandleLeadersAttached = false;
     for (final surface in controller.mountedSurfaces) {
       surface.clearSelectionHandleLayersIfLinked(
         startLink: _startHandleLink,
