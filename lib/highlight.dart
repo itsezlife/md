@@ -19,4 +19,4 @@
 /// ```
 library;
 
-export 'src/highlight/engine.dart' hide HighlightWaits;
+export 'src/highlight/engine.dart';

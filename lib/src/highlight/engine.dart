@@ -1,9 +1,6 @@
-import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter/painting.dart';
-import 'package:meta/meta.dart' as meta;
 
 /// {@template highlight_grammar}
 /// A syntax grammar: an ordered list of [GrammarToken] rules applied to source
@@ -163,7 +160,6 @@ final class MarkdownHighlighter implements SyntaxHighlighter {
   MarkdownHighlighter({
     required Map<String, Grammar> languages,
     required this.theme,
-    this.backgroundFrom = 4096,
   }) : _languages = {
           for (final MapEntry<String, Grammar>(:key, :value)
               in languages.entries)
@@ -174,21 +170,6 @@ final class MarkdownHighlighter implements SyntaxHighlighter {
 
   /// The theme used to color tokens.
   final CodeHighlightTheme theme;
-
-  /// The length, in code units, from which code is tokenized off the UI
-  /// thread, or null to tokenize all code where it is asked for.
-  ///
-  /// Tokenizing takes time in proportion to the code, and a long fence took
-  /// longer than a frame. From this length [highlight] answers with the plain
-  /// code at once and tokenizes it in a background isolate; a markdown body
-  /// that showed it plain builds the block again, colored, when it is ready.
-  /// Shorter code is colored at once, so it never shows plain first. On the
-  /// web, which has no isolates, all code is tokenized where it is asked for.
-  final int? backgroundFrom;
-
-  /// The tokenizing in progress, by the key it will be cached under.
-  final Map<(String, String, TextStyle), Future<void>> _pending =
-      <(String, String, TextStyle), Future<void>>{};
 
   /// The latest results, oldest first, holding at most [_maxCachedLength] code
   /// units of code. Block painters are rebuilt whenever a list item scrolls
@@ -220,81 +201,16 @@ final class MarkdownHighlighter implements SyntaxHighlighter {
     final key = (language!.toLowerCase(), code, baseStyle);
     final cached = _cache.remove(key);
     if (cached != null) return _cache[key] = cached;
-    final threshold = backgroundFrom;
-    if (!kIsWeb && threshold != null && code.length >= threshold) {
-      final pending = _pending[key] ??= _inBackground(key, grammar);
-      HighlightWaits._active?.add(pending);
-      return <InlineSpan>[TextSpan(text: code)];
-    }
-    return _store(key, _spansFor(_tokenize(code, grammar), theme, baseStyle));
-  }
-
-  Future<void> _inBackground(
-    (String, String, TextStyle) key,
-    Grammar grammar,
-  ) async {
-    final (_, code, baseStyle) = key;
-    List<InlineSpan> spans;
-    try {
-      spans = await compute(
-        _highlightMessage,
-        (code, grammar, theme, baseStyle),
-        debugLabel: 'highlight ${key.$1}',
-      );
-    } on Object {
-      // No isolate to run in: tokenize here, as for short code.
-      spans = _spansFor(_tokenize(code, grammar), theme, baseStyle);
-    }
-    _pending.remove(key);
-    _store(key, spans);
-  }
-
-  /// Keeps [spans] under [key], dropping the oldest past the size bound.
-  List<InlineSpan> _store(
-    (String, String, TextStyle) key,
-    List<InlineSpan> spans,
-  ) {
-    final length = key.$2.length;
-    if (length > _maxCachedLength) return spans;
+    final spans = _spansFor(_tokenize(code, grammar), theme, baseStyle);
+    if (code.length > _maxCachedLength) return spans;
     _cache[key] = spans;
-    _cachedLength += length;
+    _cachedLength += code.length;
     while (_cachedLength > _maxCachedLength) {
       final oldest = _cache.keys.first;
       _cachedLength -= oldest.$2.length;
       _cache.remove(oldest);
     }
     return spans;
-  }
-}
-
-/// The spans of a background tokenizing's message: the code, its grammar,
-/// the theme and the base style.
-List<InlineSpan> _highlightMessage(
-  (String, Grammar, CodeHighlightTheme, TextStyle) message,
-) {
-  final (code, grammar, theme, baseStyle) = message;
-  return _spansFor(_tokenize(code, grammar), theme, baseStyle);
-}
-
-/// The highlights a painter asked for while building that are not ready yet.
-///
-/// A [SyntaxHighlighter] that answers with plain code adds the future of its
-/// colored spans here; the painter building a block collects them and builds
-/// that block again once they complete.
-@meta.internal
-abstract final class HighlightWaits {
-  static List<Future<void>>? _active;
-
-  /// Runs [body], adding to [into] every highlight it asked for that is not
-  /// ready yet.
-  static T collect<T>(List<Future<void>> into, T Function() body) {
-    final previous = _active;
-    _active = into;
-    try {
-      return body();
-    } finally {
-      _active = previous;
-    }
   }
 }
 

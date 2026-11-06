@@ -51,8 +51,6 @@ void main() {
         MarkdownHighlighter(
           languages: allHighlightLanguages,
           theme: HighlightThemes.githubDark,
-          // Here, not in the background: the time is what is measured.
-          backgroundFrom: null,
         ).highlight(code, language, const TextStyle());
         expect(stopwatch.elapsed, lessThan(budget));
       });
@@ -473,12 +471,6 @@ def f(x): return x
     });
 
     test('the cache is bounded, and oversized code is not kept', () {
-      // Tokenized where asked: code this long goes to the background.
-      final highlighter = MarkdownHighlighter(
-        languages: {'dart': allHighlightLanguages['dart']!},
-        theme: HighlightThemes.githubDark,
-        backgroundFrom: null,
-      );
       final huge = 'a' * ((1 << 18) + 1);
       final first = highlighter.highlight(huge, 'dart', base);
       expect(highlighter.highlight(huge, 'dart', base), isNot(same(first)));

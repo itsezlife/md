@@ -62,7 +62,6 @@ import 'spoiler/spoiler_particle_tile_test.dart' as spoiler_particle_tile_test;
 import 'spoiler/spoiler_selection_test.dart' as spoiler_selection_test;
 import 'spoiler/spoiler_widget_test.dart' as spoiler_widget_test;
 import 'theme/theme_test.dart' as theme_test;
-import 'widget/background_highlight_test.dart' as background_highlight_test;
 import 'widget/block_painters_test.dart' as block_painters_test;
 import 'widget/chip_test.dart' as chip_test;
 import 'widget/inline_image_test.dart' as inline_image_test;
@@ -139,7 +138,6 @@ void main() => group('Unit', () {
       layout_optimizations_test.main();
       painter_reuse_test.main();
       painter_cache_test.main();
-      background_highlight_test.main();
       render_coverage_test.main();
       inline_image_test.main();
       rtl_test.main();

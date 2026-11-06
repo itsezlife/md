@@ -1,6 +1,5 @@
 //ignore_for_file: unnecessary_import
 
-import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -11,7 +10,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:meta/meta.dart' as meta show internal;
 
-import '../highlight/engine.dart' show HighlightWaits;
 import '../inline_embed.dart';
 import '../markdown.dart';
 import '../nodes.dart';
@@ -324,7 +322,10 @@ class MarkdownPainter {
     for (var i = kept; i < blocks.length; i++) {
       final block = blocks[i];
       if (filter != null && !filter(block)) continue;
-      painters.add(_buildBlock(painters.length, block, embeds));
+      painters.add(
+        _adopt(_theme.builder?.call(block, _theme), embeds) ??
+            _defaultBlockBuilder(block, _theme, embeds),
+      );
       sources.add(i);
     }
     _blockPainters = painters;
@@ -339,61 +340,6 @@ class MarkdownPainter {
           newBlocks: blocks,
         ),
       );
-  }
-
-  /// The painter of [block], to sit at [index]. Code it shows plain while its
-  /// highlighting runs elsewhere is built again, colored, once that is done.
-  BlockPainter _buildBlock(
-    int index,
-    MD$Block block,
-    MarkdownEmbedHost? embeds,
-  ) {
-    final waits = <Future<void>>[];
-    final painter = HighlightWaits.collect(
-      waits,
-      () =>
-          _adopt(_theme.builder?.call(block, _theme), embeds) ??
-          _defaultBlockBuilder(block, _theme, embeds),
-    );
-    if (waits.isNotEmpty) {
-      unawaited(Future.wait(waits).then((_) => _rebuildBlock(index, painter)));
-    }
-    return painter;
-  }
-
-  /// Builds the block at [index] again if [painter] is still the one there,
-  /// and lays the body out again.
-  void _rebuildBlock(int index, BlockPainter painter) {
-    final painters = _blockPainters;
-    // Rebuilt or disposed since: nothing to do.
-    if (index >= painters.length || !identical(painters[index], painter)) {
-      return;
-    }
-    final source = _sourceIndices[index];
-    if (painter case final HorizontallyPannableBlock pannable
-        when pannable.scrollOffset > 0) {
-      _horizontalPanBySource[source] = pannable.scrollOffset;
-    }
-    final embeds = _embeds;
-    if (embeds != null) {
-      for (final (text, _, _) in _textFragments(painter)) {
-        embeds.releaseIn(text.text);
-      }
-    }
-    final rebuilt = _images.run(
-      () => _buildBlock(index, _markdown.blocks[source], embeds),
-    );
-    _blockPainters = <BlockPainter>[...painters]..[index] = rebuilt;
-    // A host builder may hand out a painter it still holds on to, unless the
-    // theme says each one is the body's.
-    if (_theme.builder == null || _theme.disposeBuiltPainters) {
-      painter.dispose();
-    }
-    if (index < _keptBlocks) _keptBlocks = index;
-    if (index < _prefixBlocks) _dropPrefixPicture();
-    _aheadNext = math.min(_aheadNext, index);
-    onPaintersRebuilt?.call();
-    _handleImageChanged(true);
   }
 
   /// Harvests live pans keyed by source block index.
@@ -1369,10 +1315,6 @@ class MarkdownPainter {
   /// The recorded prefix, for tests.
   @visibleForTesting
   int get debugPrefixBlocks => _prefixBlocks;
-
-  /// The block painters, in order, for tests.
-  @visibleForTesting
-  List<BlockPainter> get debugBlockPainters => _blockPainters;
 
   void _dropPrefixPicture() {
     _prefixPicture?.dispose();
