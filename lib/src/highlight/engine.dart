@@ -224,8 +224,34 @@ final class MarkdownHighlighter implements SyntaxHighlighter {
 sealed class _Node {}
 
 final class _Text extends _Node {
-  _Text(this.text);
-  final String text;
+  _Text(String text)
+      : _source = text,
+        _start = 0,
+        length = text.length;
+
+  /// The text of `source[start..end)`, copied out only when first read.
+  ///
+  /// A greedy rule leaves the rest of the text after each match as plain text
+  /// for its next match; copying that rest every time made the rule quadratic
+  /// in the code's length.
+  _Text.slice(String source, int start, int end)
+      : _source = source,
+        _start = start,
+        length = end - start;
+
+  String _source;
+  int _start;
+
+  /// The length of [text], known without reading it.
+  final int length;
+
+  String get text {
+    if (_start != 0 || _source.length != length) {
+      _source = _source.substring(_start, _start + length);
+      _start = 0;
+    }
+    return _source;
+  }
 }
 
 final class _Span extends _Node {
@@ -298,7 +324,7 @@ void _applyPlain(List<_Node> nodes, GrammarToken rule, int depth, int from) {
 
 /// The text length of [node].
 int _lengthOf(_Node node) => switch (node) {
-      _Text(:final text) => text.length,
+      _Text(:final length) => length,
       _Span(:final length) => length,
     };
 
@@ -375,7 +401,7 @@ void _applyGreedy(
     ));
     changed = true;
     final after = <_Node>[
-      if (end < stop) _Text(text.substring(end, stop)),
+      if (end < stop) _Text.slice(text, end, stop),
     ];
     if (swallowed && after.isNotEmpty) _applyRules(after, rules, r, depth);
     // The leftover is still input for this rule: put it back in front of

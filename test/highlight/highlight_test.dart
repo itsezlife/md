@@ -34,6 +34,29 @@ Color? _colorOf(List<(String, TextStyle)> frags, String needle) {
 }
 
 void main() {
+  // Code that once made tokenizing quadratic: a greedy rule copied the rest of
+  // the text after each of its matches. At this size a quadratic pass takes
+  // tens of seconds and a linear one well under a second, so the generous
+  // budget never flakes on a slow machine.
+  group('tokenizes in linear time', () {
+    const lines = 40000;
+    const budget = Duration(seconds: 5);
+    final inputs = <String, String>{
+      'json': '[\n${'  {"id": 1, "name": "item", "ok": true},\n' * lines}]',
+      'dart': '// a comment\nfinal x = 1; // trailing\n' * lines,
+    };
+    for (final MapEntry(key: language, value: code) in inputs.entries) {
+      test(language, () {
+        final stopwatch = Stopwatch()..start();
+        MarkdownHighlighter(
+          languages: allHighlightLanguages,
+          theme: HighlightThemes.githubDark,
+        ).highlight(code, language, const TextStyle());
+        expect(stopwatch.elapsed, lessThan(budget));
+      });
+    }
+  });
+
   const base = TextStyle(fontFamily: 'monospace', fontSize: 14);
 
   MarkdownHighlighter highlighterWith(Map<String, Grammar> langs) =>
