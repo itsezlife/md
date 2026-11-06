@@ -1,3 +1,19 @@
+## 0.9.2
+
+A long body can be prepared over several gaps between frames.
+The release tag is `v0.9.2`; depend on it by git ref as described under
+0.3.0's *Fork status*.
+
+### Rendering
+- **ADDED**: `MarkdownPainterCache.prepare` takes `more`: blocks are laid out
+  one at a time while it returns true, and it returns whether the body is
+  done. A body stopped part way is kept aside and the next call resumes it,
+  so a host can spread one long body over many short slices; a body that
+  shows it first takes it and lays out the rest. One block is the smallest
+  piece of work.
+- **ADDED**: `MarkdownPainter.layoutAhead` lays out blocks ahead of `layout`,
+  resuming where it stopped, and `MarkdownPainter.theme`.
+
 ## 0.9.1
 
 A body can paint from text laid out before it was built.

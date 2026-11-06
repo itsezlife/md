@@ -110,6 +110,9 @@ class MarkdownPainter {
   /// Current theme for the markdown widget.
   MarkdownThemeData _theme;
 
+  /// The theme the painters are built with.
+  MarkdownThemeData get theme => _theme;
+
   /// The size of the painted markdown content.
   Size get size => _size;
   Size _size;
@@ -123,6 +126,10 @@ class MarkdownPainter {
 
   /// Whether [layout] must run before geometry queries are meaningful.
   bool get needsLayout => _needsLayout;
+
+  /// The next block [layoutAhead] lays out, and the width it lays out at.
+  int _aheadNext = 0;
+  double _aheadWidth = double.nan;
 
   Float32List _blockOffsets = Float32List(0);
   List<BlockPainter> _blockPainters = const <BlockPainter>[];
@@ -302,6 +309,7 @@ class MarkdownPainter {
     List<MD$Block> previousBlocks,
   ) {
     _needsLayout = true; // Mark that layout needs to be recalculated.
+    _aheadNext = 0;
     _size = Size.zero; // Reset size before rebuilding.
     // The indices below name the painters just disposed; [layout] refills them.
     _spoilerBlocks = const <int>{};
@@ -877,6 +885,30 @@ class MarkdownPainter {
     _needsLayout = false; // No need to layout if the markdown is empty.
     _findSpoilerBlocks();
     return _size = size;
+  }
+
+  /// Lays out blocks ahead of [layout], one at a time while [more] returns
+  /// true, and returns whether every block is laid out at [maxWidth].
+  ///
+  /// Each call resumes after the last block laid out. A block is the unit of
+  /// work: one is never split, and [more] is asked before each. A later
+  /// [layout] at the same width finds the blocks' text laid out and only
+  /// stacks them, so the work moves out of the frame that calls it. The
+  /// painter still needs [layout] before it paints.
+  bool layoutAhead({
+    required double maxWidth,
+    required bool Function() more,
+  }) {
+    final blocks = _blockPainters;
+    if (maxWidth != _aheadWidth) {
+      _aheadWidth = maxWidth;
+      _aheadNext = 0;
+    }
+    while (_aheadNext < blocks.length && more()) {
+      final block = blocks[_aheadNext++];
+      _images.run(() => block.layout(maxWidth));
+    }
+    return _aheadNext >= blocks.length;
   }
 
   /// Lays out every block at [width], stacking them vertically, and returns
