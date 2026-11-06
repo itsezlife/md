@@ -20,6 +20,8 @@ const double _width = 600;
 final MarkdownHighlighter _highlighter = MarkdownHighlighter(
   languages: allHighlightLanguages,
   theme: HighlightThemes.githubDark,
+  // Measured where it runs: every fence is tokenized in the frame.
+  backgroundFrom: null,
 );
 
 MarkdownThemeData _theme({bool highlight = false}) => MarkdownThemeData(
@@ -138,8 +140,14 @@ void main() {
             () => MarkdownHighlighter(
               languages: allHighlightLanguages,
               theme: HighlightThemes.githubDark,
+              // Here, not in the background: the time is what is measured.
+              backgroundFrom: null,
             ).highlight(code, language, base),
-            runs: lines > 10000 ? 1 : lines > 1000 ? 3 : 15,
+            runs: lines > 10000
+                ? 1
+                : lines > 1000
+                    ? 3
+                    : 15,
           ),
         );
       }
