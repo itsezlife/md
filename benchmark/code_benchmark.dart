@@ -128,13 +128,18 @@ void main() {
   test('tokenize', () {
     const base = TextStyle(fontSize: 14);
     for (final language in _samples.keys) {
-      for (final lines in const <int>[50, 500, 5000]) {
+      for (final lines in const <int>[50, 500, 5000, 50000]) {
         final code = _lines(language, lines);
         _report(
           'tokenize $language $lines lines',
           _median(
-            () => _highlighter.highlight(code, language, base),
-            runs: lines > 1000 ? 5 : 15,
+            // A highlighter of its own each run: one that has seen the code
+            // answers from its cache.
+            () => MarkdownHighlighter(
+              languages: allHighlightLanguages,
+              theme: HighlightThemes.githubDark,
+            ).highlight(code, language, base),
+            runs: lines > 10000 ? 1 : lines > 1000 ? 3 : 15,
           ),
         );
       }

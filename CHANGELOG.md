@@ -1,3 +1,19 @@
+## 0.9.3
+
+Highlighting long code takes time in proportion to its length.
+The release tag is `v0.9.3`; depend on it by git ref as described under
+0.3.0's *Fork status*.
+
+### Highlighting
+- **FIXED**: tokenizing was quadratic in the code's length. A greedy rule
+  (comments and strings in most grammars) copied the rest of the text after
+  each of its matches. The rest is now a slice of the text, copied once when
+  read. 50,000 lines of JSON took 68 s and take 1 s; Dart, 4.8 s and 0.8 s.
+  The tokens are unchanged.
+- **FIXED**: the `tokenize` benchmark highlighted with one highlighter, so
+  every run after the first was a cache hit. Each run now uses its own, and
+  the benchmark adds 50,000 lines.
+
 ## 0.9.2
 
 A long body can be prepared over several gaps between frames.
