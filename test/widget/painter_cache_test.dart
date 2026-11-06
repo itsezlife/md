@@ -150,4 +150,70 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     expect(cache.holds(markdown), isTrue);
   });
+
+  group('prepared in slices', () {
+    final long = Markdown.fromString(
+      'First paragraph of a body.\n\n'
+      'Second paragraph of a body.\n\n'
+      'Third paragraph of a body.',
+    );
+
+    /// Lets one block through per call.
+    bool Function() oneBlock() {
+      var left = 1;
+      return () => left-- > 0;
+    }
+
+    testWidgets('a body is prepared a block at a time', (tester) async {
+      final cache = MarkdownPainterCache();
+      addTearDown(cache.clear);
+      var calls = 1;
+      while (!cache.prepare(
+        long,
+        theme: _theme,
+        maxWidth: 300,
+        more: oneBlock(),
+      )) {
+        expect(cache.holds(long), isFalse);
+        calls++;
+      }
+      expect(calls, greaterThan(2));
+      expect(cache.holds(long), isTrue);
+    });
+
+    testWidgets('a body takes the painter prepared part way', (tester) async {
+      final cache = MarkdownPainterCache();
+      addTearDown(cache.clear);
+      await tester.pumpWidget(_body(long, key: const Key('alone')));
+      final whole = tester.getSize(find.byType(MarkdownWidget));
+
+      expect(
+        cache.prepare(long, theme: _theme, maxWidth: 300, more: oneBlock()),
+        isFalse,
+      );
+      await tester.pumpWidget(_body(long, cache: cache, key: const Key('a')));
+      // The body laid out the rest: the size is the whole body's.
+      expect(tester.getSize(find.byType(MarkdownWidget)), whole);
+
+      // Nothing is pending once the body has it: it keeps its own on leaving.
+      expect(cache.prepare(long, theme: _theme, maxWidth: 300), isTrue);
+      expect(cache.holds(long), isFalse);
+      await tester.pumpWidget(const SizedBox());
+      expect(cache.holds(long), isTrue);
+    });
+
+    testWidgets('another theme starts over', (tester) async {
+      final cache = MarkdownPainterCache();
+      addTearDown(cache.clear);
+      cache.prepare(long, theme: _theme, maxWidth: 300, more: oneBlock());
+
+      final other = MarkdownThemeData(
+        textStyle: const TextStyle(fontSize: 20, color: Color(0xFF000000)),
+      );
+      expect(cache.prepare(long, theme: other, maxWidth: 300), isTrue);
+      final taken = cache.take(long)!;
+      addTearDown(taken.dispose);
+      expect(taken.theme, same(other));
+    });
+  });
 }
